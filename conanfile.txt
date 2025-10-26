@@ -1,7 +1,12 @@
 [requires]
-spdlog/1.9.2
-rapidjson/cci.20200410
-cxxopts/3.0.0
+fmt/12.0.0
+spdlog/1.16.0
+rapidjson/1.1.0
+cxxopts/3.3.1
 
 [generators]
-cmake
+CMakeDeps
+CMakeToolchain
+
+[layout]
+cmake_layout
