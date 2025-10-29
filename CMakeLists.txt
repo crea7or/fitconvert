@@ -23,13 +23,17 @@ set(FITSDK_SRC
   "fitsdk/fit_convert.c"
   )
 
-set(TARGET_SRC
+set(MAIN_SRC
   "main.cpp"
+  )
+
+set(TARGET_SRC
   "parser.cpp"
   "parser.h"
   "datasource.cpp"
   "datasource.h"
   )
+
 
 # init for vs 2002
 # conan install . -s build_type=Release --build=missing
@@ -40,10 +44,30 @@ set(TARGET_SRC
 find_package(spdlog REQUIRED)
 find_package(RapidJSON REQUIRED)
 find_package(cxxopts REQUIRED)
+find_package(GTest REQUIRED)
 
-add_executable(${PROJECT_NAME} ${TARGET_SRC} ${FITSDK_SRC})
+add_executable(${PROJECT_NAME} ${MAIN_SRC} ${TARGET_SRC} ${FITSDK_SRC})
 target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt
         spdlog::spdlog
         cxxopts::cxxopts
         rapidjson
         )
+
+set(TEST_PROJECT_NAME "fitconvert-tests")
+
+enable_testing()
+
+set(TEST_SOURCES
+  "tests.cpp"
+  )
+
+add_executable(${TEST_PROJECT_NAME} ${TEST_SOURCES} ${FITSDK_SRC})
+target_link_libraries(${TEST_PROJECT_NAME} PRIVATE fmt::fmt
+        spdlog::spdlog
+        cxxopts::cxxopts
+        rapidjson
+        gtest::gtest)
+
+include(GoogleTest)
+
+gtest_discover_tests(${TEST_PROJECT_NAME})

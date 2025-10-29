@@ -1,4 +1,4 @@
-/*
+﻿/*
 
  MIT License
 
@@ -48,6 +48,7 @@
 #include <rapidjson/writer.h>
 #include <spdlog/spdlog.h>
 
+#include <array>
 #include <cstdint>
 
 #include "datasource.h"
@@ -56,42 +57,10 @@
 
 namespace {
 
-constexpr std::string_view kSpeedTag("speed");
-constexpr std::string_view kSpeedUnitsTag("mm/sec");
-
-constexpr std::string_view kDistanceTag("distance");
-constexpr std::string_view kDistanceUnitsTag("cm");
-
-constexpr std::string_view kHeartRateTag("heartrate");
-constexpr std::string_view kHeartRateUnitsTag("bpm");
-
-constexpr std::string_view kAltitudeTag("altitude");
-constexpr std::string_view kAltitudeUnitsTag("cm");
-
-constexpr std::string_view kPowerTag("power");
-constexpr std::string_view kPowerUnitsTag("w");
-
-constexpr std::string_view kCadenceTag("cadence");
-constexpr std::string_view kCadenceUnitsTag("rpm");
-
-constexpr std::string_view kTemperatureTag("temperature");
-constexpr std::string_view kTemperatureUnitsTag("c");
-
-constexpr std::string_view kTimeStampTag("timestamp");
-constexpr std::string_view kTimeStampUnitsTag("millisec");  // we convert it from seconds here
-
-constexpr std::string_view kTimeStampNextTag("timestamp_next");
-constexpr std::string_view kTimeStampNextUnitsTag("millisec");  // we convert it from seconds here
-
-constexpr std::string_view kLatitudeTag("latitude");
-constexpr std::string_view kLatitudeUnitsTag("semicircles");
-
-constexpr std::string_view kLongitudeTag("longitude");
-constexpr std::string_view kLongitudeUnitsTag("semicircles");
-
 constexpr std::string_view kVttHeaderTag("WEBVTT\n\n");
+constexpr std::string_view kNoValue("---");
 
-enum class DataType : uint32_t {
+enum DataType : uint32_t {
   // always should be zero
   kTypeFirst = 0,
   kTypeSpeed = 0,
@@ -109,11 +78,66 @@ enum class DataType : uint32_t {
   kTypeMax,
 };
 
-constexpr uint32_t kDataTypeFirst = static_cast<uint32_t>(DataType::kTypeFirst);
-constexpr uint32_t kDataTypeMax = static_cast<uint32_t>(DataType::kTypeMax);
-
-uint32_t DataTypeToMask(const DataType type) {
+constexpr uint32_t DataTypeToMask(const DataType type) {
   return 0x01 << static_cast<uint32_t>(type);
+};
+
+constexpr std::array<uint32_t, DataType::kTypeMax> kDataTypeMasks = {
+    DataTypeToMask(kTypeSpeed),         // kTypeSpeed
+    DataTypeToMask(kTypeDistance),      // kTypeDistance
+    DataTypeToMask(kTypeHeartRate),     // kTypeHeartRate
+    DataTypeToMask(kTypeAltitude),      // kTypeAltitude
+    DataTypeToMask(kTypePower),         // kTypePower
+    DataTypeToMask(kTypeCadence),       // kTypeCadence
+    DataTypeToMask(kTypeTemperature),   // kTypeTemperature
+    DataTypeToMask(kTypeTimeStamp),     // kTypeTimeStamp
+    DataTypeToMask(kTypeLatitude),      // kTypeLatitude
+    DataTypeToMask(kTypeLongitude),     // kTypeLongitude
+    DataTypeToMask(kTypeTimeStampNext)  // kTypeTimeStampNext
+};
+
+constexpr std::array<std::pair<std::string_view, std::string_view>, DataType::kTypeMax> kDataTypes = {
+    {{"speed", "mm/sec"},           // kTypeSpeed
+     {"distance", "cm"},            // kTypeDistance
+     {"heartrate", "bpm"},          // kTypeHeartRate
+     {"altitude", "m"},             // kTypeAltitude
+     {"power", "W"},                // kTypePower
+     {"cadence", "rpm"},            // kTypeCadence
+     {"temperature", "c"},          // kTypeTemperature
+     {"timestamp", "msec"},         // kTypeTimeStamp
+     {"latitude", "semicircles"},   // kTypeLatitude
+     {"longitude", "semicircles"},  // kTypeLongitude
+     {"timestamp", "msec"}}         // kTypeTimeStampNext
+};
+
+using FormatData = std::array<std::pair<std::string_view, size_t>, DataType::kTypeMax>;
+
+constexpr FormatData kDataTypeFormatStd = {
+    {{" {} km/h ", 11},   // kTypeSpeed km/h
+     {"⇄ {} km ", 13},    // kTypeDistance km
+     {" ❤️{} ", 11},       // kTypeHeartRate bpm
+     {"🏔️{} m ", 15},     // kTypeAltitude meters
+     {"⚡{} ", 8},        // kTypePower watt
+     {" ↻ {} ", 9},       // kTypeCadence rotations rpm
+     {"🌡️{}°C", 12},      // kTypeTemperature celsius
+     {"{}", 5},           // kTypeTimeStamp
+     {"semicircles", 5},  // kTypeLatitude
+     {"semicircles", 5},  // kTypeLongitude
+     {"{}", 5}}           // kTypeTimeStampNext
+};
+
+constexpr FormatData kDataTypeFormatImp = {
+    {{" {} mph ", 10},    // kTypeSpeed km/h
+     {"⇄ {} mi ", 13},    // kTypeDistance km
+     {" ❤️{} ", 11},       // kTypeHeartRate bpm
+     {"🏔️{} ft ", 16},    // kTypeAltitude meters
+     {"⚡{} ", 8},        // kTypePower watt
+     {" ↻ {} ", 9},       // kTypeCadence rotations rpm
+     {"🌡️{}°F", 12},      // kTypeTemperature celsius
+     {"{}", 5},           // kTypeTimeStamp
+     {"semicircles", 5},  // kTypeLatitude
+     {"semicircles", 5},  // kTypeLongitude
+     {"{}", 5}}           // kTypeTimeStampNext
 };
 
 struct DataTagUnit {
@@ -127,14 +151,14 @@ struct DataTagUnit {
 };
 
 struct Record {
-  int64_t values[static_cast<uint32_t>(DataType::kTypeMax)]{};
+  int64_t values[DataType::kTypeMax]{};
   uint32_t Valid{0};  // mask of values DataType values: 0x01 << DataType
 };
 
 constexpr Record operator-(const Record left_value, const Record right_value) {
   Record diff_record;
   diff_record.Valid = left_value.Valid & right_value.Valid;
-  for (uint32_t index = kDataTypeFirst; index < kDataTypeMax; ++index) {
+  for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
     diff_record.values[index] = left_value.values[index] - right_value.values[index];
   }
   return diff_record;
@@ -143,7 +167,7 @@ constexpr Record operator-(const Record left_value, const Record right_value) {
 constexpr Record operator+(const Record left_value, const Record right_value) {
   Record summ_record;
   summ_record.Valid = left_value.Valid & right_value.Valid;
-  for (uint32_t index = kDataTypeFirst; index < kDataTypeMax; ++index) {
+  for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
     summ_record.values[index] = left_value.values[index] + right_value.values[index];
   }
   return summ_record;
@@ -152,7 +176,7 @@ constexpr Record operator+(const Record left_value, const Record right_value) {
 constexpr Record operator/(const Record left_value, const int64_t divider) {
   Record divided_record;
   divided_record.Valid = left_value.Valid;
-  for (uint32_t index = kDataTypeFirst; index < kDataTypeMax; ++index) {
+  for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
     divided_record.values[index] = left_value.values[index] / divider;
   }
   return divided_record;
@@ -193,10 +217,7 @@ ValueByType GetValueByType(const Record& record, const DataType type) {
   return result;
 };
 
-std::string NumberToStringPrecision(const int64_t number,
-                                    const double divider,
-                                    const size_t total_symbols,
-                                    const size_t dot_limit) {
+std::string NumberToStringPrecision(const int64_t number, const double divider, const size_t total_symbols, const size_t dot_limit) {
   const double double_number = static_cast<double>(number);
   std::string str_result(std::to_string(double_number / divider));
   str_result = str_result.substr(0, total_symbols);
@@ -235,84 +256,24 @@ struct FitResult {
 };
 
 std::string_view DataTypeToName(const DataType type) {
-  switch (type) {
-    case DataType::kTypeAltitude:
-      return kAltitudeTag;
-    case DataType::kTypeLatitude:
-      return kLatitudeTag;
-    case DataType::kTypeLongitude:
-      return kLongitudeTag;
-    case DataType::kTypeSpeed:
-      return kSpeedTag;
-    case DataType::kTypeDistance:
-      return kDistanceTag;
-    case DataType::kTypeHeartRate:
-      return kHeartRateTag;
-    case DataType::kTypePower:
-      return kPowerTag;
-    case DataType::kTypeCadence:
-      return kCadenceTag;
-    case DataType::kTypeTemperature:
-      return kTemperatureTag;
-    case DataType::kTypeTimeStamp:
-      return kTimeStampTag;
-    case DataType::kTypeTimeStampNext:
-      return kTimeStampNextTag;
+  if (type >= DataType::kTypeFirst && type < kDataTypes.size()) {
+    return kDataTypes[type].first;
   }
   return "";
 };
 
 DataType NameToDataType(std::string_view name) {
-  if (name == kAltitudeTag) {
-    return DataType::kTypeAltitude;
-  } else if (name == kLatitudeTag) {
-    return DataType::kTypeLatitude;
-  } else if (name == kLongitudeTag) {
-    return DataType::kTypeLongitude;
-  } else if (name == kSpeedTag) {
-    return DataType::kTypeSpeed;
-  } else if (name == kDistanceTag) {
-    return DataType::kTypeDistance;
-  } else if (name == kHeartRateTag) {
-    return DataType::kTypeHeartRate;
-  } else if (name == kPowerTag) {
-    return DataType::kTypePower;
-  } else if (name == kCadenceTag) {
-    return DataType::kTypeCadence;
-  } else if (name == kTemperatureTag) {
-    return DataType::kTypeTemperature;
-  } else if (name == kTimeStampTag) {
-    return DataType::kTypeTimeStamp;
-  } else if (name == kTimeStampNextTag) {
-    return DataType::kTypeTimeStampNext;
+  for (auto i = 0; i < kDataTypes.size(); i++) {
+    if (kDataTypes[i].first == name) {
+      return static_cast<DataType>(i);
+    }
   }
   return DataType::kTypeMax;
 };
 
 std::string_view DataTypeToUnit(const DataType type) {
-  switch (type) {
-    case DataType::kTypeAltitude:
-      return kAltitudeUnitsTag;
-    case DataType::kTypeLatitude:
-      return kLatitudeUnitsTag;
-    case DataType::kTypeLongitude:
-      return kLongitudeUnitsTag;
-    case DataType::kTypeSpeed:
-      return kSpeedUnitsTag;
-    case DataType::kTypeDistance:
-      return kDistanceUnitsTag;
-    case DataType::kTypeHeartRate:
-      return kHeartRateUnitsTag;
-    case DataType::kTypePower:
-      return kPowerUnitsTag;
-    case DataType::kTypeCadence:
-      return kCadenceUnitsTag;
-    case DataType::kTypeTemperature:
-      return kTemperatureUnitsTag;
-    case DataType::kTypeTimeStamp:
-      return kTimeStampUnitsTag;
-    case DataType::kTypeTimeStampNext:
-      return kTimeStampNextUnitsTag;
+  if (type >= DataType::kTypeFirst && type < kDataTypes.size()) {
+    return kDataTypes[type].second;
   }
   return "";
 };
@@ -333,6 +294,28 @@ void ApplyValue(Record& new_record, const DataType data_type, const int64_t valu
 bool CheckType(const uint32_t types, const DataType to_check) {
   return types & DataTypeToMask(to_check);
 };
+
+
+template <class T>
+std::string FormatValue(const DataType datatype, const T& data, const FormatData& format) {
+  std::string formatted{fmt::format(format[datatype].first, data)};
+  if (formatted.size() < format[datatype].second) {
+    formatted.append(format[datatype].second - formatted.size(), ' ');
+  }
+  return formatted;
+}
+
+std::string ProcessStraightValue(const DataType type, const Record& record, const uint32_t header_flags, const FormatData& format) {
+  const auto record_value = GetValueByType(record, type);
+  if (header_flags & kDataTypeMasks[type]) {
+    if (record_value.Valid()) {
+      return FormatValue(type, record_value.value, format);
+    } else {
+      return FormatValue(type, kNoValue, format);
+    }
+  }
+  return "";
+}
 
 }  // namespace
 
@@ -365,33 +348,34 @@ uint32_t DataTypeNamesToMask(std::string_view names) {
   return types_mask;
 }
 
-std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr, const uint32_t collect_data_types) {
+std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr,
+                                     const uint32_t collect_data_types,
+                                     const uint8_t smoothness) {
   auto fit_result = std::make_unique<FitResult>();
   uint32_t used_data_types{0};  // mask of values DataType values: 0x01 << DataType
 
   const size_t data_source_size = data_source_ptr->GetSize();
   if (data_source_size > 0) {
-    fit_result->result.reserve(data_source_size / 60);
+    fit_result->result.reserve((data_source_size / 60) * (smoothness + 1));
   } else {
-    fit_result->result.reserve(8192);  // average for 2 hours ride
+    fit_result->result.reserve(8192 * (smoothness + 1));  // average for 2 hours ride
   }
 
   FIT_CONVERT_RETURN fit_status = FIT_CONVERT_CONTINUE;
   FitConvert_Init(FIT_TRUE);
   Buffer data_buffer(4096);
   size_t errors_counter{0};
-  while ((DataSource::Status::kError != data_source_ptr->ReadData(data_buffer)) &&
-         (fit_status == FIT_CONVERT_CONTINUE)) {
+  while ((DataSource::Status::kError != data_source_ptr->ReadData(data_buffer)) && (fit_status == FIT_CONVERT_CONTINUE)) {
     while (fit_status = FitConvert_Read(data_buffer.GetDataPtr(), static_cast<FIT_UINT32>(data_buffer.GetDataSize())),
            fit_status == FIT_CONVERT_MESSAGE_AVAILABLE) {
       if (FitConvert_GetMessageNumber() != FIT_MESG_NUM_RECORD) {
         if (errors_counter > data_buffer.GetBufferSize()) {
           // avoid stupid hang, not sure if it's even possible but why not
-          break;
-        }
+          throw std::exception("defective .fit file");
+        }        
         continue;
       }
-      errors_counter = 0;
+      ++errors_counter;
 
       const FIT_UINT8* fit_message_ptr = FitConvert_GetMessageData();
       const FIT_RECORD_MESG* fit_record_ptr = reinterpret_cast<const FIT_RECORD_MESG*>(fit_message_ptr);
@@ -401,14 +385,12 @@ std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr
       // convert timestamp to milliseconds
       const int64_t type_msec = static_cast<int64_t>(fit_record_ptr->timestamp) * 1000;
       ApplyValue(fit_result->result.back(), DataType::kTypeTimeStamp, type_msec);
-      ApplyValue(
-          fit_result->result.back(), DataType::kTypeTimeStampNext, type_msec + 1000);  // default 1sec to next entry
+      ApplyValue(fit_result->result.back(), DataType::kTypeTimeStampNext, type_msec + 1000);  // default 1sec to next entry
       if (fit_result->result.size() > 1) {
         // fix kTypeTimeStampNext in previous entry
         ApplyValue(fit_result->result[fit_result->result.size() - 2], DataType::kTypeTimeStampNext, type_msec);
       }
 
-      std::string output;
       if (fit_record_ptr->distance != FIT_UINT32_INVALID && CheckType(collect_data_types, DataType::kTypeDistance)) {
         // FIT_UINT32 distance = 100 * m = cm
         ApplyValue(fit_result->result.back(), DataType::kTypeDistance, fit_record_ptr->distance);
@@ -434,8 +416,7 @@ std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr
         ApplyValue(fit_result->result.back(), DataType::kTypeAltitude, fit_record_ptr->altitude);
       }
 
-      if (fit_record_ptr->enhanced_altitude != FIT_UINT32_INVALID &&
-          CheckType(collect_data_types, DataType::kTypeAltitude)) {
+      if (fit_record_ptr->enhanced_altitude != FIT_UINT32_INVALID && CheckType(collect_data_types, DataType::kTypeAltitude)) {
         // FIT_UINT32 enhanced_altitude = 5 * m + 500
         ApplyValue(fit_result->result.back(), DataType::kTypeAltitude, fit_record_ptr->enhanced_altitude);
       }
@@ -450,15 +431,13 @@ std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr
         ApplyValue(fit_result->result.back(), DataType::kTypeSpeed, fit_record_ptr->enhanced_speed);
       }
 
-      if (fit_record_ptr->temperature != FIT_SINT8_INVALID &&
-          CheckType(collect_data_types, DataType::kTypeTemperature)) {
+      if (fit_record_ptr->temperature != FIT_SINT8_INVALID && CheckType(collect_data_types, DataType::kTypeTemperature)) {
         // FIT_SINT8 temperature = C
         ApplyValue(fit_result->result.back(), DataType::kTypeTemperature, fit_record_ptr->temperature);
       }
 
       if (fit_record_ptr->position_lat != FIT_SINT32_INVALID && fit_record_ptr->position_long != FIT_SINT32_INVALID &&
-          CheckType(collect_data_types, DataType::kTypeLatitude) &&
-          CheckType(collect_data_types, DataType::kTypeLongitude)) {
+          CheckType(collect_data_types, DataType::kTypeLatitude) && CheckType(collect_data_types, DataType::kTypeLongitude)) {
         // FIT_SINT32 position_lat = semicircles
         // FIT_SINT32 position_long = semicircles
         ApplyValue(fit_result->result.back(), DataType::kTypeLatitude, fit_record_ptr->position_lat);
@@ -496,7 +475,7 @@ std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr
     SPDLOG_ERROR("protocol version not supported");
   }
 
-  // not a good idea for stream output
+  // will not work for cout output
   SPDLOG_INFO("fit records processed: {}, source size: {}", fit_result->result.size(), data_source_size);
   return fit_result;
 }
@@ -505,12 +484,14 @@ std::string convert(std::unique_ptr<DataSource> data_source_ptr,
                     const std::string_view output_type,
                     const int64_t offset,
                     const uint8_t smoothness,
-                    const uint32_t datatypes) {
-  std::unique_ptr<FitResult> fit_result = FitParser(std::move(data_source_ptr), datatypes);
+                    const uint32_t datatypes,
+                    const bool imperial) {
+  std::unique_ptr<FitResult> fit_result = FitParser(std::move(data_source_ptr), datatypes, smoothness);
   if (fit_result->status != ParseResult::kSuccess) {
     // error reported in parser
     throw std::runtime_error("can not parse .fit file");
   }
+  const bool vtt_fomat = kOutputVttTag == output_type;
 
   if (output_type == kOutputJsonTag) {
     rapidjson::StringBuffer string_buffer;
@@ -536,7 +517,7 @@ std::string convert(std::unique_ptr<DataSource> data_source_ptr,
     for (const auto& item : fit_result->result) {
       writer.StartObject();
 
-      for (uint32_t index = kDataTypeFirst; index < kDataTypeMax; ++index) {
+      for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
         const auto value_by_type = GetValueByType(item, static_cast<DataType>(index));
         if (value_by_type.Valid()) {
           const auto name = DataTypeToName(value_by_type.dt);
@@ -553,26 +534,28 @@ std::string convert(std::unique_ptr<DataSource> data_source_ptr,
 
     return std::string(string_buffer.GetString(), string_buffer.GetSize());
 
-  } else if (kOutputSrtTag == output_type || kOutputVttTag == output_type) {
+  } else if (vtt_fomat || kOutputSrtTag == output_type) {
+    const FormatData& format = imperial ? kDataTypeFormatImp : kDataTypeFormatStd;
+
     int64_t records_count = 0;
     int64_t first_video_timestamp = 0;
     int64_t first_fit_timestamp = 0;
-    int64_t ascent = 500 * 5;   // default for altitude, because altitude: meters = (value / 5 ) - 500
-    int64_t descent = 500 * 5;  // default for altitude, because altitude: meters = (value / 5 ) - 500
-    int64_t previous_altitude = 0;
-    bool initial_altitude_set = false;
+    int64_t last_subtitle_timestamp = 0;
 
     const size_t items_total = (smoothness + 1) * fit_result->result.size();
     std::string subtitles_data;
     subtitles_data.reserve(items_total * 128);  // 128 near to maxtimum size of ,vtt or .srt sntry
     char milliseconds_delimiter = ',';
-    if (kOutputVttTag == output_type) {
+
+    if (vtt_fomat) {
       milliseconds_delimiter = '.';
       subtitles_data += kVttHeaderTag;
     }
 
     std::vector<Record> records_to_process;
     records_to_process.reserve(smoothness + 1);
+    std::string output;
+    output.reserve(128);
 
     size_t valid_value_count = 0;
     for (size_t index = 0; index < fit_result->result.size(); ++index) {
@@ -602,18 +585,10 @@ std::string convert(std::unique_ptr<DataSource> data_source_ptr,
       // clear previous data
       records_to_process.clear();
 
-      // set initial altitude
-      if (false == initial_altitude_set) {
-        const auto altitude_by_type = GetValueByType(original_record, DataType::kTypeAltitude);
-        if (altitude_by_type.Valid()) {
-          initial_altitude_set = true;
-          previous_altitude = altitude_by_type.value;
-        }
-      }
-
       // smoothness
       if (valid_value_count > 0 && smoothness > 0) {
         Record start_from = fit_result->result[index - 1];
+
         Record diff = original_record - start_from;
         diff = diff / (smoothness + 1);
         for (int64_t cur_step = 0; cur_step < smoothness; ++cur_step) {
@@ -627,76 +602,78 @@ std::string convert(std::unique_ptr<DataSource> data_source_ptr,
       for (auto& record : records_to_process) {
         // we use it instead of index > 0
         ++valid_value_count;
+        output.clear();
 
-        std::string output;
+
         const auto dst_by_type = GetValueByType(record, DataType::kTypeDistance);
         if (dst_by_type.Valid()) {
-          const auto distance(NumberToStringPrecision(dst_by_type.value, 100000.0, 5, 2));
-          output += fmt::format("{:>5} km", distance);
-        }
-
-        const auto hr_by_type = GetValueByType(record, DataType::kTypeHeartRate);
-        if (hr_by_type.Valid()) {
-          output += fmt::format("{:>5} bpm", hr_by_type.value);
-        }
-
-        const auto cadence_by_type = GetValueByType(record, DataType::kTypeCadence);
-        if (cadence_by_type.Valid()) {
-          output += fmt::format("{:>5} rpm", cadence_by_type.value);
-        }
-
-        const auto power_by_type = GetValueByType(record, DataType::kTypePower);
-        if (power_by_type.Valid()) {
-          output += fmt::format("{:>6} w", power_by_type.value);
-        }
-
-        const auto altitude_by_type = GetValueByType(record, DataType::kTypeAltitude);
-        if (altitude_by_type.Valid()) {
-          const int64_t altitude_diff = altitude_by_type.value - previous_altitude;
-          if (altitude_diff > 0) {
-            ascent += altitude_diff;
-          } else {
-            descent += altitude_diff;
-          }
-          previous_altitude = altitude_by_type.value;
-          output += fmt::format("{:>5} m", (ascent / 5) - 500);
+          const auto distance(NumberToStringPrecision(dst_by_type.value, imperial ? 160934.4 : 100000.0, 5, 2));
+          output += FormatValue(DataType::kTypeDistance, distance, format);
         }
 
         const auto speed_by_type = GetValueByType(record, DataType::kTypeSpeed);
         if (speed_by_type.Valid()) {
-          const auto speed(NumberToStringPrecision(speed_by_type.value, 277.77, 5, 1));
-          output += fmt::format("{:>6} km/h", speed);
+          const auto speed(NumberToStringPrecision(speed_by_type.value, imperial ? 447.2136 : 277.77, 4, 1));
+          output += FormatValue(DataType::kTypeSpeed, speed, format);
+        }
+
+        output += ProcessStraightValue(DataType::kTypeHeartRate, record, fit_result->header_flags, format);
+
+        output += ProcessStraightValue(DataType::kTypeCadence, record, fit_result->header_flags, format);
+
+        output += ProcessStraightValue(DataType::kTypePower, record, fit_result->header_flags, format);
+
+        const auto altitude_by_type = GetValueByType(record, DataType::kTypeAltitude);
+        if (altitude_by_type.Valid()) {
+          const int64_t altitude_meters = (altitude_by_type.value / 5) - 500;
+          const int64_t altitude_value = imperial ? int64_t(altitude_meters * 3.28084) : altitude_meters;
+          output += FormatValue(DataType::kTypeAltitude, altitude_value, format);
         }
 
         const auto temp_by_type = GetValueByType(record, DataType::kTypeTemperature);
         if (temp_by_type.Valid()) {
-          output += fmt::format("{:>4} C", temp_by_type.value);
+          const int64_t temperature_value = imperial ? (temp_by_type.value * 9.0 / 5.0 + 32.0) : temp_by_type.value;
+          output += FormatValue(DataType::kTypeTemperature, temperature_value, format);
         }
 
         const auto timestamp_by_type = GetValueByType(record, DataType::kTypeTimeStamp);
         const auto timestamp_by_type_next = GetValueByType(record, DataType::kTypeTimeStampNext);
-
         const int64_t current_record_from = timestamp_by_type.Valid() ? timestamp_by_type.value : 0;
-        const int64_t current_record_to = timestamp_by_type_next.Valid() ? timestamp_by_type_next.value : 0;        
+        const int64_t current_record_to = timestamp_by_type_next.Valid() ? timestamp_by_type_next.value : 0;
         const int64_t milliseconds_from = (current_record_from - first_fit_timestamp) + first_video_timestamp;
         const int64_t milliseconds_to = (current_record_to - first_fit_timestamp) + first_video_timestamp;
         const Time time_from(GetTime(milliseconds_from));
         const Time time_to(GetTime(milliseconds_to));
-        const auto time_data(
-            fmt::format("{}\n{:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d} --> {:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d}\n{}\n\n",
-                        valid_value_count,
-                        time_from.hours,
-                        time_from.minutes,
-                        time_from.seconds,
-                        milliseconds_delimiter,
-                        time_from.milliseconds,
-                        time_to.hours,
-                        time_to.minutes,
-                        time_to.seconds,
-                        milliseconds_delimiter,
-                        time_to.milliseconds,
-                        output));
-        subtitles_data += time_data;
+        if (vtt_fomat) {
+          const auto entry_data(fmt::format("{:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d} --> {:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d}\n{}\n\n",
+                                            time_from.hours,
+                                            time_from.minutes,
+                                            time_from.seconds,
+                                            milliseconds_delimiter,
+                                            time_from.milliseconds,
+                                            time_to.hours,
+                                            time_to.minutes,
+                                            time_to.seconds,
+                                            milliseconds_delimiter,
+                                            time_to.milliseconds,
+                                            output));
+          subtitles_data += entry_data;
+        } else {
+          const auto entry_data(fmt::format("{}\n{:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d} --> {:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d}\n{}\n\n",
+                                            valid_value_count,
+                                            time_from.hours,
+                                            time_from.minutes,
+                                            time_from.seconds,
+                                            milliseconds_delimiter,
+                                            time_from.milliseconds,
+                                            time_to.hours,
+                                            time_to.minutes,
+                                            time_to.seconds,
+                                            milliseconds_delimiter,
+                                            time_to.milliseconds,
+                                            output));
+          subtitles_data += entry_data;
+        }
       }
     }
     return subtitles_data;

@@ -61,13 +61,13 @@ usage: fitconvert -i input_file -o output_file -t output_type -f offset -s N
     it is for situations when you started video after starting recording your activity(that generated .fit file)
 * if the offset is negative - the first second of .fit data will be displayed at abs('offset') second of the video
     it is for situations when you started your activity (that generated .fit file) after starting the video
--s - smooth values by inserting N smoothed values between timestamps (optional, for srt export only)
+-s - smooth values by inserting N (0-5) smoothed values between timestamps (optional, for srt/vtt export only)
+-v - values format: iso or imperial
 -d - data to process, enumerate delimited by comma (default all): speed,distance,heartrate,altitude,power,cadence,temperature,latitude,longitude
 )%";
 
 int main(int argc, char* argv[]) {
   spdlog::set_pattern("[%H:%M:%S.%e] %^[%l]%$ %v");
-  spdlog::set_level(spdlog::level::info);
   try {
     cxxopts::Options cmd_options("FIT converter", "FIT telemetry converter to .SRT, .VTT or .JSON");
     cmd_options.add_options()                                                               //
@@ -77,6 +77,7 @@ int main(int argc, char* argv[]) {
         ("d,data", "", cxxopts::value<std::string>()->default_value(""))                    //
         ("t,type", "", cxxopts::value<std::string>()->default_value(kOutputSrtTag.data()))  //
         ("f,offset", "", cxxopts::value<int64_t>()->default_value("0"))                     //
+        ("v,values", "", cxxopts::value<std::string>()->default_value("iso"))               //
         ("s,smooth", "", cxxopts::value<uint8_t>()->default_value("0"));                    //
     const auto cmd_result = cmd_options.parse(argc, argv);
 
@@ -88,11 +89,32 @@ int main(int argc, char* argv[]) {
     const std::string input_fit_file(cmd_result["input"].as<std::string>());
     const std::string output_file(cmd_result["output"].as<std::string>());
     const std::string output_type(cmd_result["type"].as<std::string>());
-    const int64_t offset = cmd_result["offset"].as<int64_t>();
-    const uint8_t smoothness = cmd_result["smooth"].as<uint8_t>();
+    const int64_t offset(cmd_result["offset"].as<int64_t>());
+    const uint8_t smoothness(cmd_result["smooth"].as<uint8_t>());
     const std::string datatypes(cmd_result["data"].as<std::string>());
+    const std::string values(cmd_result["values"].as<std::string>());
 
-    uint32_t datatypes_mask = DataTypeNamesToMask(datatypes) ;
+    if (output_file == kStdoutTag) {
+      // disable informative output for cou output
+      spdlog::set_level(spdlog::level::err);
+#ifdef _WIN32
+      (void)_setmode(_fileno(stdout), _O_BINARY);
+#endif
+    } else {
+      spdlog::set_level(spdlog::level::info);
+    }
+#ifdef _WIN32
+    if (input_fit_file == kStdinTag) {
+      (void)_setmode(_fileno(stdin), _O_BINARY);
+    }
+#endif
+
+    if (values != kValuesISO && values != kValuesImperial) {
+      SPDLOG_ERROR("unknown values format specified: '{}, only 'iso' or 'imperial' is supported", values);
+      return kToolError;
+    }
+
+    uint32_t datatypes_mask = DataTypeNamesToMask(datatypes);
     if (0 == datatypes_mask) {
       datatypes_mask = std::numeric_limits<uint32_t>::max();
     }
@@ -102,8 +124,8 @@ int main(int argc, char* argv[]) {
       return kToolError;
     }
 
-    if (smoothness > 9) {
-      SPDLOG_ERROR("smoothness can not be more than 9");
+    if (smoothness > 5) {
+      SPDLOG_ERROR("smoothness can not be more than 5");
       return kToolError;
     }
 
@@ -115,7 +137,8 @@ int main(int argc, char* argv[]) {
       data_source = std::make_unique<DataSourceFile>(input_fit_file);
     }
 
-    const std::string result{convert(std::move(data_source), output_type, offset, smoothness, datatypes_mask)};
+    const std::string result{
+        convert(std::move(data_source), output_type, offset, smoothness, datatypes_mask, values == kValuesImperial)};
     if (kStdoutTag == output_file) {
       std::cout << result;
     } else {

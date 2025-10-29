@@ -30,7 +30,7 @@
 inline constexpr std::string_view kStdinTag("stdin");
 inline constexpr std::string_view kStdoutTag("stdout");
 
-struct Buffer final {
+struct Buffer {
  public:
   Buffer(const size_t buffer_size) { buffer_.resize(buffer_size); }
 
@@ -79,7 +79,7 @@ class DataSource {
   Type type_{Type::kFile};
 };
 
-class DataSourceFile : public DataSource {
+class DataSourceFile final : public DataSource {
  public:
   DataSourceFile(const std::string source_name);
   virtual ~DataSourceFile() = default;
@@ -93,17 +93,16 @@ class DataSourceFile : public DataSource {
   std::unique_ptr<std::istream> stream_;
 };
 
-class DataSourceStdin : public DataSource {
+class DataSourceStdin final : public DataSource {
  public:
   DataSourceStdin();
 
   Status ReadData(Buffer& buffer) override;
 
   size_t GetSize() const override;
-
 };
 
-class DataSourceMemory : public DataSource {
+class DataSourceMemory final : public DataSource {
  public:
   DataSourceMemory(const uint8_t* buffer_ptr, const size_t count);
   virtual ~DataSourceMemory() = default;

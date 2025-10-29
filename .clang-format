@@ -1,6 +1,6 @@
 # General Options
 BasedOnStyle: Google
-ColumnLimit: 120
+ColumnLimit: 140
 Language: Cpp
 Standard: c++17
 PointerAlignment: Left
@@ -30,7 +30,7 @@ AlwaysBreakTemplateDeclarations: true
 AllowShortBlocksOnASingleLine: Empty
 AllowShortCaseLabelsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: Inline
-AllowShortIfStatementsOnASingleLine: Never 
+AllowShortIfStatementsOnASingleLine: Never
 AllowShortLambdasOnASingleLine: Empty
 AllowShortLoopsOnASingleLine: false
 BinPackArguments: false
