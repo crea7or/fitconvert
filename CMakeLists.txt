@@ -23,10 +23,6 @@ set(FITSDK_SRC
   "fitsdk/fit_convert.c"
   )
 
-set(MAIN_SRC
-  "main.cpp"
-  )
-
 set(TARGET_SRC
   "parser.cpp"
   "parser.h"
@@ -45,6 +41,12 @@ find_package(spdlog REQUIRED)
 find_package(RapidJSON REQUIRED)
 find_package(cxxopts REQUIRED)
 find_package(GTest REQUIRED)
+find_package(benchmark REQUIRED)
+
+# main target
+set(MAIN_SRC
+  "main.cpp"
+  )
 
 add_executable(${PROJECT_NAME} ${MAIN_SRC} ${TARGET_SRC} ${FITSDK_SRC})
 target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt
@@ -53,13 +55,27 @@ target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt
         rapidjson
         )
 
+# benchmark target
+set(BENCH_PROJECT_NAME "fitconvert-bench")
+set(BENCH_SRC
+  "bench.cpp"
+  )
+
+add_executable(${BENCH_PROJECT_NAME} ${BENCH_SRC} ${TARGET_SRC} ${FITSDK_SRC})
+target_link_libraries(${BENCH_PROJECT_NAME} PRIVATE fmt::fmt
+        spdlog::spdlog
+        cxxopts::cxxopts
+        rapidjson
+        benchmark::benchmark_main
+        )
+
+# tests target
 set(TEST_PROJECT_NAME "fitconvert-tests")
-
-enable_testing()
-
 set(TEST_SOURCES
   "tests.cpp"
   )
+
+enable_testing()
 
 add_executable(${TEST_PROJECT_NAME} ${TEST_SOURCES} ${FITSDK_SRC})
 target_link_libraries(${TEST_PROJECT_NAME} PRIVATE fmt::fmt

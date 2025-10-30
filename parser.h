@@ -25,7 +25,6 @@
 #include <string_view>
 
 inline constexpr std::string_view kOutputJsonTag = "json";
-inline constexpr std::string_view kOutputSrtTag = "srt";
 inline constexpr std::string_view kOutputVttTag = "vtt";
 inline constexpr std::string_view kOutputPreviewTag = "preview";
 inline constexpr std::string_view kValuesISO = "iso";

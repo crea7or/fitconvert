@@ -45,7 +45,7 @@ constexpr const char kBanner[] = R"%(
   :CEZEONCEZEOd/.ydCEZEOCEZEOdo.sNCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOEZNEZEZN+
    `+dCEZEOEZEZdoCEZEOCEZEOEZ#N+CEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOEZ#s.
       .:+ooooo/` :+oooooooooo+. .+ooooooooooooooooooooooooooooooooooooo+/.
- C E Z E O  S O F T W A R E (c) 2025   FIT telemetry converter to SRT, VTT or JSON
+ C E Z E O  S O F T W A R E (c) 2025   FIT telemetry converter to VTT or JSON
 
 )%";
 
@@ -54,28 +54,28 @@ constexpr const char kHelp[] = R"%(
 usage: fitconvert -i input_file -o output_file -t output_type -f offset -s N
 
 -i - path to .fit file to read data from
--o - path to .srt or .json file to write to
--t - export type: srt, vtt or json
--f - offset in milliseconds to sync video and .fit data (optional, for srt export only)
+-o - path to .vtt or .json file to write to
+-t - export type: vtt or json
+-f - offset in milliseconds to sync video and .fit data (optional)
 * if the offset is positive - 'offset' second of the data from .fit file will be displayed at the first second of the video.
     it is for situations when you started video after starting recording your activity(that generated .fit file)
 * if the offset is negative - the first second of .fit data will be displayed at abs('offset') second of the video
     it is for situations when you started your activity (that generated .fit file) after starting the video
--s - smooth values by inserting N (0-5) smoothed values between timestamps (optional, for srt/vtt export only)
--v - values format: iso or imperial
--d - data to process, enumerate delimited by comma (default all): speed,distance,heartrate,altitude,power,cadence,temperature,latitude,longitude
+-s - smooth values by inserting N (0-5) smoothed values between timestamps (optional)
+-v - values format: iso or imperial (optional)
+-d - data to process, enumerate delimited by comma (default all): speed,distance,heartrate,altitude,power,cadence,temperature
 )%";
 
 int main(int argc, char* argv[]) {
   spdlog::set_pattern("[%H:%M:%S.%e] %^[%l]%$ %v");
   try {
-    cxxopts::Options cmd_options("FIT converter", "FIT telemetry converter to .SRT, .VTT or .JSON");
+    cxxopts::Options cmd_options("FIT converter", "FIT telemetry converter to .VTT or .JSON");
     cmd_options.add_options()                                                               //
         ("i,input", "", cxxopts::value<std::string>())                                      //
         ("o,output", "", cxxopts::value<std::string>())                                     //
         ("h,help", "")                                                                      //
         ("d,data", "", cxxopts::value<std::string>()->default_value(""))                    //
-        ("t,type", "", cxxopts::value<std::string>()->default_value(kOutputSrtTag.data()))  //
+        ("t,type", "", cxxopts::value<std::string>()->default_value(kOutputVttTag.data()))  //
         ("f,offset", "", cxxopts::value<int64_t>()->default_value("0"))                     //
         ("v,values", "", cxxopts::value<std::string>()->default_value("iso"))               //
         ("s,smooth", "", cxxopts::value<uint8_t>()->default_value("0"));                    //
@@ -119,8 +119,8 @@ int main(int argc, char* argv[]) {
       datatypes_mask = std::numeric_limits<uint32_t>::max();
     }
 
-    if (output_type != kOutputJsonTag && output_type != kOutputSrtTag && output_type != kOutputVttTag) {
-      SPDLOG_ERROR("unknown output specified: '{}', only srt, vtt and .json supported", output_type);
+    if (output_type != kOutputJsonTag && output_type != kOutputVttTag) {
+      SPDLOG_ERROR("unknown output specified: '{}', only vtt and .json supported", output_type);
       return kToolError;
     }
 

@@ -369,10 +369,6 @@ std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr
     while (fit_status = FitConvert_Read(data_buffer.GetDataPtr(), static_cast<FIT_UINT32>(data_buffer.GetDataSize())),
            fit_status == FIT_CONVERT_MESSAGE_AVAILABLE) {
       if (FitConvert_GetMessageNumber() != FIT_MESG_NUM_RECORD) {
-        if (errors_counter > data_buffer.GetBufferSize()) {
-          // avoid stupid hang, not sure if it's even possible but why not
-          throw std::exception("defective .fit file");
-        }        
         continue;
       }
       ++errors_counter;
@@ -382,70 +378,66 @@ std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr
 
       // allocate struct
       fit_result->result.emplace_back();
+      Record& new_record = fit_result->result.back();
       // convert timestamp to milliseconds
       const int64_t type_msec = static_cast<int64_t>(fit_record_ptr->timestamp) * 1000;
-      ApplyValue(fit_result->result.back(), DataType::kTypeTimeStamp, type_msec);
-      ApplyValue(fit_result->result.back(), DataType::kTypeTimeStampNext, type_msec + 1000);  // default 1sec to next entry
-      if (fit_result->result.size() > 1) {
-        // fix kTypeTimeStampNext in previous entry
-        ApplyValue(fit_result->result[fit_result->result.size() - 2], DataType::kTypeTimeStampNext, type_msec);
-      }
+      ApplyValue(new_record, DataType::kTypeTimeStamp, type_msec);
 
       if (fit_record_ptr->distance != FIT_UINT32_INVALID && CheckType(collect_data_types, DataType::kTypeDistance)) {
         // FIT_UINT32 distance = 100 * m = cm
-        ApplyValue(fit_result->result.back(), DataType::kTypeDistance, fit_record_ptr->distance);
+        ApplyValue(new_record, DataType::kTypeDistance, fit_record_ptr->distance);
       }
 
       if (fit_record_ptr->heart_rate != FIT_BYTE_INVALID && CheckType(collect_data_types, DataType::kTypeHeartRate)) {
         // FIT_UINT8 heart_rate = bpm
-        ApplyValue(fit_result->result.back(), DataType::kTypeHeartRate, fit_record_ptr->heart_rate);
+        ApplyValue(new_record, DataType::kTypeHeartRate, fit_record_ptr->heart_rate);
       }
 
       if (fit_record_ptr->cadence != FIT_BYTE_INVALID && CheckType(collect_data_types, DataType::kTypeCadence)) {
         // FIT_UINT8 cadence = rpm
-        ApplyValue(fit_result->result.back(), DataType::kTypeCadence, fit_record_ptr->cadence);
+        ApplyValue(new_record, DataType::kTypeCadence, fit_record_ptr->cadence);
       }
 
       if (fit_record_ptr->power != FIT_UINT16_INVALID && CheckType(collect_data_types, DataType::kTypePower)) {
         // FIT_UINT16 power = watts
-        ApplyValue(fit_result->result.back(), DataType::kTypePower, fit_record_ptr->power);
+        ApplyValue(new_record, DataType::kTypePower, fit_record_ptr->power);
       }
 
       if (fit_record_ptr->altitude != FIT_UINT16_INVALID && CheckType(collect_data_types, DataType::kTypeAltitude)) {
         // FIT_UINT16 altitude = 5 * m + 500
-        ApplyValue(fit_result->result.back(), DataType::kTypeAltitude, fit_record_ptr->altitude);
+        ApplyValue(new_record, DataType::kTypeAltitude, fit_record_ptr->altitude);
       }
 
       if (fit_record_ptr->enhanced_altitude != FIT_UINT32_INVALID && CheckType(collect_data_types, DataType::kTypeAltitude)) {
         // FIT_UINT32 enhanced_altitude = 5 * m + 500
-        ApplyValue(fit_result->result.back(), DataType::kTypeAltitude, fit_record_ptr->enhanced_altitude);
+        ApplyValue(new_record, DataType::kTypeAltitude, fit_record_ptr->enhanced_altitude);
       }
 
       if (fit_record_ptr->speed != FIT_UINT16_INVALID && CheckType(collect_data_types, DataType::kTypeSpeed)) {
         // FIT_UINT16 speed = 1000 * m/s = mm/s
-        ApplyValue(fit_result->result.back(), DataType::kTypeSpeed, fit_record_ptr->speed);
+        ApplyValue(new_record, DataType::kTypeSpeed, fit_record_ptr->speed);
       }
 
       if (fit_record_ptr->enhanced_speed != FIT_UINT32_INVALID && CheckType(collect_data_types, DataType::kTypeSpeed)) {
         // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
-        ApplyValue(fit_result->result.back(), DataType::kTypeSpeed, fit_record_ptr->enhanced_speed);
+        ApplyValue(new_record, DataType::kTypeSpeed, fit_record_ptr->enhanced_speed);
       }
 
       if (fit_record_ptr->temperature != FIT_SINT8_INVALID && CheckType(collect_data_types, DataType::kTypeTemperature)) {
         // FIT_SINT8 temperature = C
-        ApplyValue(fit_result->result.back(), DataType::kTypeTemperature, fit_record_ptr->temperature);
+        ApplyValue(new_record, DataType::kTypeTemperature, fit_record_ptr->temperature);
       }
 
       if (fit_record_ptr->position_lat != FIT_SINT32_INVALID && fit_record_ptr->position_long != FIT_SINT32_INVALID &&
           CheckType(collect_data_types, DataType::kTypeLatitude) && CheckType(collect_data_types, DataType::kTypeLongitude)) {
         // FIT_SINT32 position_lat = semicircles
         // FIT_SINT32 position_long = semicircles
-        ApplyValue(fit_result->result.back(), DataType::kTypeLatitude, fit_record_ptr->position_lat);
-        ApplyValue(fit_result->result.back(), DataType::kTypeLongitude, fit_record_ptr->position_long);
+        ApplyValue(new_record, DataType::kTypeLatitude, fit_record_ptr->position_lat);
+        ApplyValue(new_record, DataType::kTypeLongitude, fit_record_ptr->position_long);
       }
 
       // apply to global flags
-      used_data_types |= fit_result->result.back().Valid;
+      used_data_types |= new_record.Valid;
     }
   }
 
@@ -476,7 +468,7 @@ std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr
   }
 
   // will not work for cout output
-  SPDLOG_INFO("fit records processed: {}, source size: {}", fit_result->result.size(), data_source_size);
+  SPDLOG_INFO("fit records processed: {}, source size: {}, non items: {}", fit_result->result.size(), data_source_size, errors_counter);
   return fit_result;
 }
 
@@ -534,7 +526,7 @@ std::string convert(std::unique_ptr<DataSource> data_source_ptr,
 
     return std::string(string_buffer.GetString(), string_buffer.GetSize());
 
-  } else if (vtt_fomat || kOutputSrtTag == output_type) {
+  } else if (vtt_fomat) {
     const FormatData& format = imperial ? kDataTypeFormatImp : kDataTypeFormatStd;
 
     int64_t records_count = 0;
@@ -545,12 +537,8 @@ std::string convert(std::unique_ptr<DataSource> data_source_ptr,
     const size_t items_total = (smoothness + 1) * fit_result->result.size();
     std::string subtitles_data;
     subtitles_data.reserve(items_total * 128);  // 128 near to maxtimum size of ,vtt or .srt sntry
-    char milliseconds_delimiter = ',';
-
-    if (vtt_fomat) {
-      milliseconds_delimiter = '.';
-      subtitles_data += kVttHeaderTag;
-    }
+    const char milliseconds_delimiter = '.';
+    subtitles_data += kVttHeaderTag;
 
     std::vector<Record> records_to_process;
     records_to_process.reserve(smoothness + 1);
@@ -644,36 +632,20 @@ std::string convert(std::unique_ptr<DataSource> data_source_ptr,
         const int64_t milliseconds_to = (current_record_to - first_fit_timestamp) + first_video_timestamp;
         const Time time_from(GetTime(milliseconds_from));
         const Time time_to(GetTime(milliseconds_to));
-        if (vtt_fomat) {
-          const auto entry_data(fmt::format("{:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d} --> {:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d}\n{}\n\n",
-                                            time_from.hours,
-                                            time_from.minutes,
-                                            time_from.seconds,
-                                            milliseconds_delimiter,
-                                            time_from.milliseconds,
-                                            time_to.hours,
-                                            time_to.minutes,
-                                            time_to.seconds,
-                                            milliseconds_delimiter,
-                                            time_to.milliseconds,
-                                            output));
-          subtitles_data += entry_data;
-        } else {
-          const auto entry_data(fmt::format("{}\n{:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d} --> {:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d}\n{}\n\n",
-                                            valid_value_count,
-                                            time_from.hours,
-                                            time_from.minutes,
-                                            time_from.seconds,
-                                            milliseconds_delimiter,
-                                            time_from.milliseconds,
-                                            time_to.hours,
-                                            time_to.minutes,
-                                            time_to.seconds,
-                                            milliseconds_delimiter,
-                                            time_to.milliseconds,
-                                            output));
-          subtitles_data += entry_data;
-        }
+
+        const auto entry_data(fmt::format("{:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d} --> {:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d}\n{}\n\n",
+                                          time_from.hours,
+                                          time_from.minutes,
+                                          time_from.seconds,
+                                          milliseconds_delimiter,
+                                          time_from.milliseconds,
+                                          time_to.hours,
+                                          time_to.minutes,
+                                          time_to.seconds,
+                                          milliseconds_delimiter,
+                                          time_to.milliseconds,
+                                          output));
+        subtitles_data += entry_data;
       }
     }
     return subtitles_data;
