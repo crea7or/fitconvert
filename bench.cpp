@@ -53,25 +53,33 @@ std::vector<uint8_t> readFileToBuffer(const std::string& path) {
 
 std::vector<uint8_t> fit_file;
 
-static void BM_ReservesVttYes(benchmark::State& state) {
+static void BM_VttExpor(benchmark::State& state) {
   for (auto _ : state) {
     auto data_source = std::make_unique<DataSourceMemory>(fit_file.data(), fit_file.size());
-    const std::string result{convert(std::move(data_source), "vtt", 0, 0, 0xFFFFFF, false)};
+    const std::unique_ptr<FitResult> result{Convert(std::move(data_source), "vtt", 0, 0, 0xFFFFFF, false)};
     benchmark::DoNotOptimize(result);
   }
 }
 
-static void BM_ReservesJsonYes(benchmark::State& state) {
+static void BM_JsonExport(benchmark::State& state) {
   for (auto _ : state) {
     auto data_source = std::make_unique<DataSourceMemory>(fit_file.data(), fit_file.size());
-    const std::string result{convert(std::move(data_source), "json", 0, 0, 0xFFFFFF, false)};
+    const std::unique_ptr<FitResult> result{Convert(std::move(data_source), "json", 0, 0, 0xFFFFFF, false)};
     benchmark::DoNotOptimize(result);
   }
 }
 
+static void BM_FitOnlyExport(benchmark::State& state) {
+  for (auto _ : state) {
+    auto data_source = std::make_unique<DataSourceMemory>(fit_file.data(), fit_file.size());
+    const std::unique_ptr<FitResult> result{Convert(std::move(data_source), "none", 0, 0, 0xFFFFFF, false)};
+    benchmark::DoNotOptimize(result);
+  }
+}
 
-BENCHMARK(BM_ReservesJsonYes);
-BENCHMARK(BM_ReservesVttYes);
+BENCHMARK(BM_JsonExport)->Repetitions(3);
+BENCHMARK(BM_VttExpor)->Repetitions(3);
+BENCHMARK(BM_FitOnlyExport)->Repetitions(3);
 
 // Run the benchmark
 int main(int argc, char** argv) {

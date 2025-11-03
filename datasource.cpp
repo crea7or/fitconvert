@@ -34,7 +34,7 @@ DataSource::Status DataSource::ReadDataInternal(std::istream& stream, Buffer& bu
   try {
     stream.read(buffer.GetDataPtr(), buffer.GetBufferSize());
     buffer.SetDataSize(stream.gcount());
-    if (stream.eof() || buffer.GetDataSize() == 0) {
+    if (stream.eof() || stream.gcount() == 0) {
       return Status::kEndOfFile;
     } else if (stream.good()) {
       return Status::kContinueRead;

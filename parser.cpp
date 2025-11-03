@@ -18,47 +18,80 @@
  OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 */
-// defines for rapidjson
-#ifndef RAPIDJSON_HAS_CXX11_RVALUE_REFS
-#define RAPIDJSON_HAS_CXX11_RVALUE_REFS 1
-#endif
-#ifndef RAPIDJSON_HAS_STDSTRING
-#define RAPIDJSON_HAS_STDSTRING 1
-#endif
 
-// rapidjson errors handling
-#include <stdexcept>
+#include "parser.h"
 
-#ifndef RAPIDJSON_ASSERT_THROWS
-#define RAPIDJSON_ASSERT_THROWS 1
-#endif
-#ifdef RAPIDJSON_ASSERT
-#undef RAPIDJSON_ASSERT
-#endif
-#define RAPIDJSON_ASSERT(x) \
-  if (x)                    \
-    ;                       \
-  else                      \
-    throw std::runtime_error("Failed: " #x);
-// rapidjson errors handling
-
-
-#include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
+#include <fmt/core.h>
 #include <spdlog/spdlog.h>
 
 #include <array>
 #include <cstdint>
+#include <type_traits>
+#include <utility>
 
 #include "datasource.h"
 #include "fitsdk/fit_convert.h"
-#include "parser.h"
 
 namespace {
 
 constexpr std::string_view kVttHeaderTag("WEBVTT\n\n");
 constexpr std::string_view kNoValue("---");
+
+
+// adapter for fmt::format_to to write directly into a RapidJSON StringBuffer
+struct StringBufferAppender {
+  rapidjson::StringBuffer& buf;
+
+  using value_type = char;
+  using difference_type = std::ptrdiff_t;
+  using pointer = void;
+  using reference = char;
+  using iterator_category = std::output_iterator_tag;
+
+  StringBufferAppender& operator=(char c) {
+    buf.Put(c);
+    return *this;
+  }
+
+  StringBufferAppender& operator*() { return *this; }
+  StringBufferAppender& operator++() { return *this; }
+  StringBufferAppender& operator++(int) { return *this; }
+};
+
+class OutputBuffer final : public rapidjson::StringBuffer {
+ public:
+  using Base = rapidjson::StringBuffer;
+
+  OutputBuffer() = default;
+  OutputBuffer(OutputBuffer&&) noexcept = default;
+  OutputBuffer& operator=(OutputBuffer&&) noexcept = default;
+
+  OutputBuffer(const OutputBuffer&) = delete;
+  OutputBuffer& operator=(const OutputBuffer&) = delete;
+
+  // append newline
+  void NewLine() { Put('\n'); }
+
+  // append formatted
+  template <typename... Args>
+  void AppendFmt(fmt::format_string<Args...> fmtStr, Args&&... args) {
+    fmt::format_to(StringBufferAppender{*this}, fmtStr, std::forward<Args>(args)...);
+  }
+
+  void AppendString(std::string_view s) {
+    for (char c : s)
+      Put(c);
+  }
+
+  void AppendString(const std::string& s) {
+    for (char c : s)
+      Put(c);
+  }
+
+  // expose current size and data
+  const char* data() const noexcept { return GetString(); }
+  size_t size() const noexcept { return GetSize(); }
+};
 
 enum DataType : uint32_t {
   // always should be zero
@@ -97,22 +130,22 @@ constexpr std::array<uint32_t, DataType::kTypeMax> kDataTypeMasks = {
 };
 
 constexpr std::array<std::pair<std::string_view, std::string_view>, DataType::kTypeMax> kDataTypes = {
-    {{"speed", "mm/sec"},           // kTypeSpeed
-     {"distance", "cm"},            // kTypeDistance
-     {"heartrate", "bpm"},          // kTypeHeartRate
-     {"altitude", "m"},             // kTypeAltitude
-     {"power", "W"},                // kTypePower
-     {"cadence", "rpm"},            // kTypeCadence
-     {"temperature", "c"},          // kTypeTemperature
-     {"timestamp", "msec"},         // kTypeTimeStamp
-     {"latitude", "semicircles"},   // kTypeLatitude
-     {"longitude", "semicircles"},  // kTypeLongitude
-     {"timestamp", "msec"}}         // kTypeTimeStampNext
+    {{"speed", "s"},        // kTypeSpeed
+     {"distance", "d"},     // kTypeDistance
+     {"heartrate", "h"},    // kTypeHeartRate
+     {"altitude", "a"},     // kTypeAltitude
+     {"power", "p"},        // kTypePower
+     {"cadence", "c"},      // kTypeCadence
+     {"temperature", "t"},  // kTypeTemperature
+     {"timestamp", "f"},    // kTypeTimeStamp
+     {"latitude", "u"},     // kTypeLatitude
+     {"longitude", "o"},    // kTypeLongitude
+     {"timestamp", "t"}}    // kTypeTimeStampNext
 };
 
 using FormatData = std::array<std::pair<std::string_view, size_t>, DataType::kTypeMax>;
 
-constexpr FormatData kDataTypeFormatStd = {
+constexpr FormatData kDataTypeFormatIso = {
     {{" {} km/h ", 11},   // kTypeSpeed km/h
      {"⇄ {} km ", 13},    // kTypeDistance km
      {" ❤️{} ", 11},       // kTypeHeartRate bpm
@@ -150,43 +183,11 @@ struct DataTagUnit {
   std::string_view data_units;
 };
 
-struct Record {
-  int64_t values[DataType::kTypeMax]{};
-  uint32_t Valid{0};  // mask of values DataType values: 0x01 << DataType
-};
-
-constexpr Record operator-(const Record left_value, const Record right_value) {
-  Record diff_record;
-  diff_record.Valid = left_value.Valid & right_value.Valid;
-  for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
-    diff_record.values[index] = left_value.values[index] - right_value.values[index];
-  }
-  return diff_record;
-};
-
-constexpr Record operator+(const Record left_value, const Record right_value) {
-  Record summ_record;
-  summ_record.Valid = left_value.Valid & right_value.Valid;
-  for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
-    summ_record.values[index] = left_value.values[index] + right_value.values[index];
-  }
-  return summ_record;
-};
-
-constexpr Record operator/(const Record left_value, const int64_t divider) {
-  Record divided_record;
-  divided_record.Valid = left_value.Valid;
-  for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
-    divided_record.values[index] = left_value.values[index] / divider;
-  }
-  return divided_record;
-};
-
 struct Time {
+  int64_t milliseconds{0};
   int64_t hours{0};
   int64_t minutes{0};
   int64_t seconds{0};
-  int64_t milliseconds{0};
 };
 
 Time GetTime(const int64_t milliseconds_total) {
@@ -205,16 +206,6 @@ struct ValueByType {
   bool Valid() const { return dt != DataType::kTypeMax; };
   int64_t value{0};
   DataType dt{DataType::kTypeMax};
-};
-
-ValueByType GetValueByType(const Record& record, const DataType type) {
-  ValueByType result;
-  if ((record.Valid & DataTypeToMask(type)) != 0) {
-    result.dt = type;
-    const uint32_t data_type_index = static_cast<uint32_t>(type);
-    result.value = record.values[data_type_index];
-  }
-  return result;
 };
 
 std::string NumberToStringPrecision(const int64_t number, const double divider, const size_t total_symbols, const size_t dot_limit) {
@@ -236,24 +227,6 @@ std::string NumberToStringPrecision(const int64_t number, const double divider, 
   }
   return str_result;
 }
-
-enum class ParseResult {
-  kSuccess,
-  kError,
-};
-
-struct FitResult {
-  // parsing status
-  ParseResult status{ParseResult::kError};
-
-  // parsed data from file
-  std::vector<Record> result;
-
-  // header for all available types of data in this file
-  std::vector<DataTagUnit> header;
-  // header in bitmask format
-  uint32_t header_flags{0};
-};
 
 std::string_view DataTypeToName(const DataType type) {
   if (type >= DataType::kTypeFirst && type < kDataTypes.size()) {
@@ -285,16 +258,9 @@ void HeaderItem(std::vector<DataTagUnit>& header, const uint32_t header_bitmask,
   }
 };
 
-void ApplyValue(Record& new_record, const DataType data_type, const int64_t value) {
-  const uint32_t data_type_index = static_cast<uint32_t>(data_type);
-  new_record.values[data_type_index] = value;
-  new_record.Valid |= DataTypeToMask(data_type);
-};
-
 bool CheckType(const uint32_t types, const DataType to_check) {
   return types & DataTypeToMask(to_check);
 };
-
 
 template <class T>
 std::string FormatValue(const DataType datatype, const T& data, const FormatData& format) {
@@ -305,17 +271,230 @@ std::string FormatValue(const DataType datatype, const T& data, const FormatData
   return formatted;
 }
 
-std::string ProcessStraightValue(const DataType type, const Record& record, const uint32_t header_flags, const FormatData& format) {
-  const auto record_value = GetValueByType(record, type);
-  if (header_flags & kDataTypeMasks[type]) {
-    if (record_value.Valid()) {
-      return FormatValue(type, record_value.value, format);
-    } else {
-      return FormatValue(type, kNoValue, format);
+struct FitData {
+  FitData() {
+    memset(values, 0, sizeof(values));
+    static_assert(FIT_UINT32_INVALID == std::numeric_limits<FIT_UINT32>::max());
+    static_assert(FIT_UINT16_INVALID == std::numeric_limits<FIT_UINT16>::max());
+    static_assert(FIT_BYTE_INVALID == std::numeric_limits<FIT_BYTE>::max());
+    static_assert(FIT_SINT8_INVALID == std::numeric_limits<FIT_SINT8>::max());
+    static_assert(FIT_SINT32_INVALID == std::numeric_limits<FIT_SINT32>::max());
+  };
+
+  FitData(const FIT_RECORD_MESG* fit_record_ptr, const uint32_t collect_data_types) { ApplyData(fit_record_ptr, collect_data_types); }
+
+  void ApplyData(const FIT_RECORD_MESG* fit_record_ptr, const uint32_t collect_data_types) {
+    memset(values, 0, sizeof(values));
+    available_types = 0;
+    values[DataType::kTypeTimeStamp] = static_cast<int64_t>(fit_record_ptr->timestamp) * 1000;
+
+    // FIT_UINT32 distance = 100 * m = cm
+    ApplyValue(DataType::kTypeDistance, fit_record_ptr->distance, collect_data_types);
+    // FIT_UINT8 heart_rate = bpm
+    ApplyValue(DataType::kTypeHeartRate, fit_record_ptr->heart_rate, collect_data_types);
+    // FIT_IONT8 cadence Rotations
+    ApplyValue(DataType::kTypeCadence, fit_record_ptr->cadence, collect_data_types);
+    // FIT_UINT16 power = watts
+    ApplyValue(DataType::kTypePower, fit_record_ptr->power, collect_data_types);
+
+    // FIT_UINT16 altitude = 5 * m + 500
+    ApplyValue(DataType::kTypeAltitude, fit_record_ptr->altitude, collect_data_types);
+    // FIT_UINT32 enhanced_altitude = 5 * m + 500
+    ApplyValue(DataType::kTypeAltitude, fit_record_ptr->enhanced_altitude, collect_data_types);
+    // FIT_UINT16 speed = 1000 * m/s = mm/s
+    ApplyValue(DataType::kTypeSpeed, fit_record_ptr->speed, collect_data_types);
+    // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
+    ApplyValue(DataType::kTypeSpeed, fit_record_ptr->enhanced_speed, collect_data_types);
+    // FIT_SINT8 temperature = C
+    ApplyValue(DataType::kTypeTemperature, fit_record_ptr->temperature, collect_data_types);
+    // FIT_SINT32 position_lat = semicircles
+    ApplyValue(DataType::kTypeLatitude, fit_record_ptr->position_lat, collect_data_types);
+    // FIT_SINT32 position_long = semicircles
+    ApplyValue(DataType::kTypeLongitude, fit_record_ptr->position_long, collect_data_types);
+  }
+
+  void ExportToJson(rapidjson::Writer<rapidjson::StringBuffer>& writer, const bool imperial) {
+    writer.StartObject();
+
+    if (ExportToJsonCheck(writer, DataType::kTypeTimeStamp)) {
+      writer.Int64(values[DataType::kTypeTimeStamp]);
+    }
+
+    if (ExportToJsonCheck(writer, DataType::kTypeTimeStampNext)) {
+      writer.Int64(values[DataType::kTypeTimeStampNext]);
+    }
+
+    if (ExportToJsonCheck(writer, DataType::kTypeDistance)) {
+      // FIT_UINT32 distance = 100 * m = cm
+      const double distance = static_cast<double>(values[DataType::kTypeDistance]) / (imperial ? 160934.4 : 100000.0);
+      writer.Double(distance);
+    }
+
+    if (ExportToJsonCheck(writer, DataType::kTypeHeartRate)) {
+      // FIT_UINT8 heart_rate = bpm{
+      writer.Uint(values[DataType::kTypeHeartRate]);
+    }
+
+    if (ExportToJsonCheck(writer, DataType::kTypeCadence)) {
+      // FIT_UINT8 cadence = rpm
+      writer.Uint(values[DataType::kTypeCadence]);
+    }
+
+    if (ExportToJsonCheck(writer, DataType::kTypePower)) {
+      // FIT_UINT16 power = watts
+      writer.Uint(values[DataType::kTypePower]);
+    }
+
+    if (ExportToJsonCheck(writer, DataType::kTypeAltitude)) {
+      // FIT_UINT32 enhanced_altitude = 5 * m + 500
+      const int64_t altitude_meters = (values[DataType::kTypeAltitude] / 5.0) - 500.0;
+      const int64_t altitude = (imperial ? (altitude_meters * 3.28084) : altitude_meters);
+      writer.Int(altitude);
+    }
+
+    if (ExportToJsonCheck(writer, DataType::kTypeSpeed)) {
+      // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
+      const double speed = static_cast<double>(values[DataType::kTypeSpeed]) / (imperial ? 447.2136 : 277.77);
+      writer.Double(speed);
+    }
+
+    if (ExportToJsonCheck(writer, DataType::kTypeTemperature)) {
+      // FIT_SINT8 temperature = C
+      const int64_t temperature = imperial ? (values[DataType::kTypeTemperature] * 9 / 5 + 32) : values[DataType::kTypeTemperature];
+      writer.Int(temperature);
+    }
+
+    /*
+    if (ExportToJsonCheck(writer, DataType::kTypeLatitude)) {
+      // FIT_SINT32 position_lat = semicircles
+      writer.Int(values[DataType::kTypeLatitude]);
+    }
+
+    if (ExportToJsonCheck(writer, DataType::kTypeLongitude)) {
+      // FIT_SINT32 position_long = semicircles
+      writer.Int(values[DataType::kTypeLongitude]);
+    }
+    */
+
+    writer.EndObject();
+  }
+
+  void ExportToVtt(OutputBuffer& writer, const bool imperial) {
+    const Time time_from(GetTime(values[DataType::kTypeTimeStamp]));
+    const Time time_to(GetTime(values[DataType::kTypeTimeStampNext]));
+    const char milliseconds_delimiter('.');
+    const FormatData& format = imperial ? kDataTypeFormatImp : kDataTypeFormatIso;
+
+    writer.AppendFmt("{:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d} --> {:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d}\n",
+                     time_from.hours,
+                     time_from.minutes,
+                     time_from.seconds,
+                     milliseconds_delimiter,
+                     time_from.milliseconds,
+                     time_to.hours,
+                     time_to.minutes,
+                     time_to.seconds,
+                     milliseconds_delimiter,
+                     time_to.milliseconds);
+
+    if (available_types & kDataTypeMasks[DataType::kTypeDistance]) {
+      const auto distance(NumberToStringPrecision(values[DataType::kTypeDistance], imperial ? 160934.4 : 100000.0, 5, 2));
+      writer.AppendString(FormatValue(DataType::kTypeDistance, distance, format));
+    }
+
+    if (available_types & kDataTypeMasks[DataType::kTypeHeartRate]) {
+      // FIT_UINT8 heart_rate = bpm{
+      writer.AppendString(FormatValue(DataType::kTypeHeartRate, values[DataType::kTypeHeartRate], format));
+    }
+
+    if (available_types & kDataTypeMasks[DataType::kTypeCadence]) {
+      // FIT_UINT8 cadence = rpm
+      writer.AppendString(FormatValue(DataType::kTypeCadence, values[DataType::kTypeCadence], format));
+    }
+
+    if (available_types & kDataTypeMasks[DataType::kTypePower]) {
+      // FIT_UINT16 power = watts
+      writer.AppendString(FormatValue(DataType::kTypePower, values[DataType::kTypePower], format));
+    }
+
+    if (available_types & kDataTypeMasks[DataType::kTypeAltitude]) {
+      // FIT_UINT32 enhanced_altitude = 5 * m + 500
+      const int64_t altitude_meters = (values[DataType::kTypeAltitude] / 5) - 500;
+      const int64_t altitude = imperial ? (altitude_meters * 3.28084) : altitude_meters;
+      writer.AppendString(FormatValue(DataType::kTypeAltitude, altitude, format));
+    }
+
+    if (available_types & kDataTypeMasks[DataType::kTypeSpeed]) {
+      // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
+      const auto speed(NumberToStringPrecision(values[DataType::kTypeSpeed], imperial ? 447.2136 : 277.77, 4, 1));
+
+      writer.AppendString(FormatValue(DataType::kTypeSpeed, speed, format));
+    }
+
+    if (available_types & kDataTypeMasks[DataType::kTypeTemperature]) {
+      // FIT_SINT8 temperature = C
+      const int64_t temperature = imperial ? (values[DataType::kTypeTemperature] * 9 / 5 + 32) : values[DataType::kTypeTemperature];
+      writer.AppendString(FormatValue(DataType::kTypeTemperature, temperature, format));
+    }
+    writer.NewLine();
+    writer.NewLine();
+  }
+
+  FitData operator-(const FitData right_value) noexcept {
+    FitData diff_record;
+    diff_record.available_types = available_types | right_value.available_types;
+    for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
+      diff_record.values[index] = values[index] - right_value.values[index];
+    }
+    return diff_record;
+  };
+
+  FitData operator+(const FitData right_value) noexcept {
+    FitData summ_record;
+    summ_record.available_types = available_types | right_value.available_types;
+    for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
+      summ_record.values[index] = values[index] + right_value.values[index];
+    }
+    return summ_record;
+  };
+
+  FitData operator/(const int64_t divider) noexcept {
+    FitData divided_record;
+    divided_record.available_types = available_types;
+    for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
+      divided_record.values[index] = values[index] / divider;
+    }
+    return divided_record;
+  };
+
+  void SetValue(const DataType type, const int64_t data) noexcept { values[type] = data; }
+
+  int64_t GetValue(const DataType type) const noexcept { return values[type]; }
+
+  uint32_t GetTypes() const noexcept { return available_types; }
+
+ private:
+  int64_t values[DataType::kTypeMax];
+  uint32_t available_types{0};
+
+ private:
+  template <typename T>
+  void ApplyValue(const DataType type, const T value, const uint32_t collect_data_types) {
+    const uint32_t datatype_mask{kDataTypeMasks[type]};
+    if (value != std::numeric_limits<T>::max() && (collect_data_types & datatype_mask)) {
+      values[type] = value;
+      available_types |= datatype_mask;
     }
   }
-  return "";
-}
+
+  bool ExportToJsonCheck(rapidjson::Writer<rapidjson::StringBuffer>& writer, DataType type) {
+    if (available_types & kDataTypeMasks[type]) {
+      writer.Key(rapidjson::StringRef(kDataTypes[type].second.data(), kDataTypes[type].second.size()));
+      return true;
+    }
+    return false;
+  }
+};
 
 }  // namespace
 
@@ -348,114 +527,163 @@ uint32_t DataTypeNamesToMask(std::string_view names) {
   return types_mask;
 }
 
-std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr,
-                                     const uint32_t collect_data_types,
-                                     const uint8_t smoothness) {
-  auto fit_result = std::make_unique<FitResult>();
-  uint32_t used_data_types{0};  // mask of values DataType values: 0x01 << DataType
+
+std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
+                                   const std::string_view output_type,
+                                   const int64_t offset,
+                                   const uint8_t smoothness,
+                                   const uint32_t collect_data_types,
+                                   const bool imperial) {
+  auto result = std::make_unique<FitResult>();
+  result->first = ParseResult::kError;
+
+  const bool json_output = (output_type == kOutputJsonTag);
+  const bool vtt_output = (output_type == kOutputVttTag);
+
+  // used_data_types - mask of values DataType values: 0x01 << DataType
+  uint32_t used_data_types{0};
+  uint32_t file_items{0};
+  uint32_t non_msg_counter{0};
+  int64_t first_fit_timestamp{0};
+  int64_t first_video_timestamp{0};
 
   const size_t data_source_size = data_source_ptr->GetSize();
-  if (data_source_size > 0) {
-    fit_result->result.reserve((data_source_size / 60) * (smoothness + 1));
-  } else {
-    fit_result->result.reserve(8192 * (smoothness + 1));  // average for 2 hours ride
-  }
-
   FIT_CONVERT_RETURN fit_status = FIT_CONVERT_CONTINUE;
   FitConvert_Init(FIT_TRUE);
-  Buffer data_buffer(4096);
-  size_t errors_counter{0};
-  while ((DataSource::Status::kError != data_source_ptr->ReadData(data_buffer)) && (fit_status == FIT_CONVERT_CONTINUE)) {
+  Buffer data_buffer(4096 * 16);
+
+  OutputBuffer write_buffer;
+  // start json creation
+  rapidjson::Writer<rapidjson::StringBuffer> writer(write_buffer);
+  write_buffer.Reserve((data_source_size == 0 ? (2048 * 1024) : (data_source_size + (data_source_size >> 2))));
+  if (json_output) {
+    writer.SetMaxDecimalPlaces(2);
+    writer.StartObject();
+    // records
+    writer.Key("records");
+    writer.StartArray();
+  } else if (vtt_output) {
+    write_buffer.AppendString(kVttHeaderTag);
+  }
+
+  // make exporter
+  auto MakeExporter = [](auto& write_buffer, auto& writer, auto& vtt_output, auto& json_output, auto& imperial) {
+    return [&](auto&& x) noexcept -> void {
+      if (json_output) {
+        x->ExportToJson(writer, imperial);
+      } else if (vtt_output) {
+        x->ExportToVtt(write_buffer, imperial);
+      }
+    };
+  };
+  auto Export = MakeExporter(write_buffer, writer, vtt_output, json_output, imperial);
+
+
+  FitData new_fit_data;
+  FitData previous_fit_data;
+  FitData* new_fit_data_ptr = &new_fit_data;
+  FitData* previous_fot_data_ptr = nullptr;
+
+  while ((DataSource::Status::kError != data_source_ptr->ReadData(data_buffer)) && (fit_status == FIT_CONVERT_CONTINUE) &&
+         data_buffer.GetDataSize() > 0) {
     while (fit_status = FitConvert_Read(data_buffer.GetDataPtr(), static_cast<FIT_UINT32>(data_buffer.GetDataSize())),
            fit_status == FIT_CONVERT_MESSAGE_AVAILABLE) {
       if (FitConvert_GetMessageNumber() != FIT_MESG_NUM_RECORD) {
+        non_msg_counter++;
         continue;
       }
-      ++errors_counter;
 
       const FIT_UINT8* fit_message_ptr = FitConvert_GetMessageData();
       const FIT_RECORD_MESG* fit_record_ptr = reinterpret_cast<const FIT_RECORD_MESG*>(fit_message_ptr);
 
-      // allocate struct
-      fit_result->result.emplace_back();
-      Record& new_record = fit_result->result.back();
       // convert timestamp to milliseconds
       const int64_t type_msec = static_cast<int64_t>(fit_record_ptr->timestamp) * 1000;
-      ApplyValue(new_record, DataType::kTypeTimeStamp, type_msec);
-
-      if (fit_record_ptr->distance != FIT_UINT32_INVALID && CheckType(collect_data_types, DataType::kTypeDistance)) {
-        // FIT_UINT32 distance = 100 * m = cm
-        ApplyValue(new_record, DataType::kTypeDistance, fit_record_ptr->distance);
+      // fit timestamp should not be 0, because it's milliseconds since UTC 00:00 Dec 31 1989
+      if (0 == first_fit_timestamp) {
+        first_fit_timestamp = type_msec;
+        if (offset > 0) {
+          first_fit_timestamp += offset;
+        } else if (offset < 0) {
+          first_video_timestamp = std::abs(offset);
+        }
       }
 
-      if (fit_record_ptr->heart_rate != FIT_BYTE_INVALID && CheckType(collect_data_types, DataType::kTypeHeartRate)) {
-        // FIT_UINT8 heart_rate = bpm
-        ApplyValue(new_record, DataType::kTypeHeartRate, fit_record_ptr->heart_rate);
+      if (offset > 0) {
+        // positive offset, 'offset' second of the data from .fit file will displayed at the first second of the video
+        if (type_msec < first_fit_timestamp) {
+          continue;
+        }
       }
 
-      if (fit_record_ptr->cadence != FIT_BYTE_INVALID && CheckType(collect_data_types, DataType::kTypeCadence)) {
-        // FIT_UINT8 cadence = rpm
-        ApplyValue(new_record, DataType::kTypeCadence, fit_record_ptr->cadence);
-      }
+      // fill data from .fit
+      new_fit_data_ptr->ApplyData(fit_record_ptr, collect_data_types);
 
-      if (fit_record_ptr->power != FIT_UINT16_INVALID && CheckType(collect_data_types, DataType::kTypePower)) {
-        // FIT_UINT16 power = watts
-        ApplyValue(new_record, DataType::kTypePower, fit_record_ptr->power);
-      }
-
-      if (fit_record_ptr->altitude != FIT_UINT16_INVALID && CheckType(collect_data_types, DataType::kTypeAltitude)) {
-        // FIT_UINT16 altitude = 5 * m + 500
-        ApplyValue(new_record, DataType::kTypeAltitude, fit_record_ptr->altitude);
-      }
-
-      if (fit_record_ptr->enhanced_altitude != FIT_UINT32_INVALID && CheckType(collect_data_types, DataType::kTypeAltitude)) {
-        // FIT_UINT32 enhanced_altitude = 5 * m + 500
-        ApplyValue(new_record, DataType::kTypeAltitude, fit_record_ptr->enhanced_altitude);
-      }
-
-      if (fit_record_ptr->speed != FIT_UINT16_INVALID && CheckType(collect_data_types, DataType::kTypeSpeed)) {
-        // FIT_UINT16 speed = 1000 * m/s = mm/s
-        ApplyValue(new_record, DataType::kTypeSpeed, fit_record_ptr->speed);
-      }
-
-      if (fit_record_ptr->enhanced_speed != FIT_UINT32_INVALID && CheckType(collect_data_types, DataType::kTypeSpeed)) {
-        // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
-        ApplyValue(new_record, DataType::kTypeSpeed, fit_record_ptr->enhanced_speed);
-      }
-
-      if (fit_record_ptr->temperature != FIT_SINT8_INVALID && CheckType(collect_data_types, DataType::kTypeTemperature)) {
-        // FIT_SINT8 temperature = C
-        ApplyValue(new_record, DataType::kTypeTemperature, fit_record_ptr->temperature);
-      }
-
-      if (fit_record_ptr->position_lat != FIT_SINT32_INVALID && fit_record_ptr->position_long != FIT_SINT32_INVALID &&
-          CheckType(collect_data_types, DataType::kTypeLatitude) && CheckType(collect_data_types, DataType::kTypeLongitude)) {
-        // FIT_SINT32 position_lat = semicircles
-        // FIT_SINT32 position_long = semicircles
-        ApplyValue(new_record, DataType::kTypeLatitude, fit_record_ptr->position_lat);
-        ApplyValue(new_record, DataType::kTypeLongitude, fit_record_ptr->position_long);
-      }
-
+      // reset timestamp to video data (+offset), ONLY AFTER ApplyData!
+      const int64_t new_fit_from_ms = (type_msec - first_fit_timestamp) + first_video_timestamp;
+      new_fit_data_ptr->SetValue(DataType::kTypeTimeStamp, new_fit_from_ms);
       // apply to global flags
-      used_data_types |= new_record.Valid;
+      used_data_types |= new_fit_data_ptr->GetTypes();
+      ++file_items;
+      std::swap(previous_fot_data_ptr, new_fit_data_ptr);
+      if (new_fit_data_ptr == nullptr) {
+        new_fit_data_ptr = &previous_fit_data;
+        continue;
+      }
+      // process new_fit_data_ptr (actually the previous one as we swaped them) and we have new one in previous_fit_data_ptr
+      if (smoothness > 0) {
+        const int64_t smoothed_diff_ms = (new_fit_from_ms - new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp)) / (smoothness + 1);
+        new_fit_data_ptr->SetValue(DataType::kTypeTimeStampNext, new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp) + smoothed_diff_ms);
+        Export(new_fit_data_ptr);
+
+        FitData diff = *previous_fot_data_ptr - *new_fit_data_ptr;
+        diff = diff / (smoothness + 1);
+        for (uint8_t cur_step = 0; cur_step < smoothness; ++cur_step) {
+          *new_fit_data_ptr = *new_fit_data_ptr + diff;
+          new_fit_data_ptr->SetValue(DataType::kTypeTimeStampNext, new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp) + smoothed_diff_ms);
+          Export(new_fit_data_ptr);
+        }
+      } else {
+        new_fit_data_ptr->SetValue(DataType::kTypeTimeStampNext, new_fit_from_ms);
+        Export(new_fit_data_ptr);
+      }
     }
   }
 
   if (fit_status == FIT_CONVERT_END_OF_FILE) {
     // success
-    fit_result->status = ParseResult::kSuccess;
-    fit_result->header_flags = used_data_types;
+    result->first = ParseResult::kSuccess;
 
-    HeaderItem(fit_result->header, used_data_types, DataType::kTypeAltitude);
-    HeaderItem(fit_result->header, used_data_types, DataType::kTypeCadence);
-    HeaderItem(fit_result->header, used_data_types, DataType::kTypeDistance);
-    HeaderItem(fit_result->header, used_data_types, DataType::kTypeHeartRate);
-    HeaderItem(fit_result->header, used_data_types, DataType::kTypeLatitude);
-    HeaderItem(fit_result->header, used_data_types, DataType::kTypeLongitude);
-    HeaderItem(fit_result->header, used_data_types, DataType::kTypePower);
-    HeaderItem(fit_result->header, used_data_types, DataType::kTypeSpeed);
-    HeaderItem(fit_result->header, used_data_types, DataType::kTypeTemperature);
-    HeaderItem(fit_result->header, used_data_types, DataType::kTypeTimeStamp);
+    // finish json
+    if (previous_fot_data_ptr != nullptr) {
+      // save last item
+      previous_fot_data_ptr->SetValue(
+          DataType::kTypeTimeStampNext,
+          previous_fot_data_ptr->GetValue(DataType::kTypeTimeStamp) + 1000);  // last item have no the next, to take time from
+      Export(previous_fot_data_ptr);
+    }
+
+    if (json_output) {
+      // records
+      writer.EndArray();
+      writer.Key("types");
+      writer.StartObject();
+      // types legend
+      for (uint32_t type = DataType::kTypeFirst; type < DataType::kTypeMax; ++type) {
+        writer.Key(rapidjson::StringRef(kDataTypes[type].first.data(), kDataTypes[type].first.size()));
+        writer.Uint64(kDataTypeMasks[type]);
+      }
+      writer.EndObject();
+
+      writer.Key("fields");
+      writer.Uint64(used_data_types);
+      writer.Key("timestamp");
+      writer.Int64(first_fit_timestamp);
+      writer.Key("offset");
+      writer.Int64(offset);
+      writer.EndObject();
+    }
+
+    result->second = std::move(write_buffer);
 
   } else if (fit_status == FIT_CONVERT_ERROR) {
     SPDLOG_ERROR("error decoding file");
@@ -468,188 +696,6 @@ std::unique_ptr<FitResult> FitParser(std::unique_ptr<DataSource> data_source_ptr
   }
 
   // will not work for cout output
-  SPDLOG_INFO("fit records processed: {}, source size: {}, non items: {}", fit_result->result.size(), data_source_size, errors_counter);
-  return fit_result;
-}
-
-std::string convert(std::unique_ptr<DataSource> data_source_ptr,
-                    const std::string_view output_type,
-                    const int64_t offset,
-                    const uint8_t smoothness,
-                    const uint32_t datatypes,
-                    const bool imperial) {
-  std::unique_ptr<FitResult> fit_result = FitParser(std::move(data_source_ptr), datatypes, smoothness);
-  if (fit_result->status != ParseResult::kSuccess) {
-    // error reported in parser
-    throw std::runtime_error("can not parse .fit file");
-  }
-  const bool vtt_fomat = kOutputVttTag == output_type;
-
-  if (output_type == kOutputJsonTag) {
-    rapidjson::StringBuffer string_buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(string_buffer);
-    writer.StartObject();
-    // header
-    writer.Key("header");
-    writer.StartArray();
-    // header objects
-    for (const auto& header_item : fit_result->header) {
-      writer.StartObject();
-      writer.Key("data");
-      writer.String(header_item.data_tag.data(), static_cast<rapidjson::SizeType>(header_item.data_tag.size()));
-      writer.Key("units");
-      writer.String(header_item.data_units.data(), static_cast<rapidjson::SizeType>(header_item.data_units.size()));
-      writer.EndObject();
-    }
-    writer.EndArray();
-    // records
-    writer.Key("records");
-    writer.StartArray();
-
-    for (const auto& item : fit_result->result) {
-      writer.StartObject();
-
-      for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
-        const auto value_by_type = GetValueByType(item, static_cast<DataType>(index));
-        if (value_by_type.Valid()) {
-          const auto name = DataTypeToName(value_by_type.dt);
-          writer.Key(name.data(), static_cast<rapidjson::SizeType>(name.size()));
-          writer.Int64(value_by_type.value);
-        }
-      }
-
-      writer.EndObject();
-    }
-
-    writer.EndArray();
-    writer.EndObject();
-
-    return std::string(string_buffer.GetString(), string_buffer.GetSize());
-
-  } else if (vtt_fomat) {
-    const FormatData& format = imperial ? kDataTypeFormatImp : kDataTypeFormatStd;
-
-    int64_t records_count = 0;
-    int64_t first_video_timestamp = 0;
-    int64_t first_fit_timestamp = 0;
-    int64_t last_subtitle_timestamp = 0;
-
-    const size_t items_total = (smoothness + 1) * fit_result->result.size();
-    std::string subtitles_data;
-    subtitles_data.reserve(items_total * 128);  // 128 near to maxtimum size of ,vtt or .srt sntry
-    const char milliseconds_delimiter = '.';
-    subtitles_data += kVttHeaderTag;
-
-    std::vector<Record> records_to_process;
-    records_to_process.reserve(smoothness + 1);
-    std::string output;
-    output.reserve(128);
-
-    size_t valid_value_count = 0;
-    for (size_t index = 0; index < fit_result->result.size(); ++index) {
-      const auto& original_record = fit_result->result[index];
-
-      const auto record_time_by_type = GetValueByType(original_record, DataType::kTypeTimeStamp);
-      const int64_t record_timestamp = record_time_by_type.Valid() ? record_time_by_type.value : 0;
-
-      // fit timestamp should not be 0, because it's milliseconds since UTC 00:00 Dec 31 1989
-      if (0 == first_fit_timestamp) {
-        first_fit_timestamp = record_timestamp;
-        if (offset > 0) {
-          first_fit_timestamp += offset;
-        } else if (offset < 0) {
-          first_video_timestamp = std::abs(offset);
-          // subtitles.emplace_back(records_count++, 0, 0, "< .fit data is not available >");
-        }
-      }
-
-      if (offset > 0) {
-        // positive offset, 'offset' second of the data from .fit file will displayed at the first second of the video
-        if (record_timestamp < first_fit_timestamp) {
-          continue;
-        }
-      }
-
-      // clear previous data
-      records_to_process.clear();
-
-      // smoothness
-      if (valid_value_count > 0 && smoothness > 0) {
-        Record start_from = fit_result->result[index - 1];
-
-        Record diff = original_record - start_from;
-        diff = diff / (smoothness + 1);
-        for (int64_t cur_step = 0; cur_step < smoothness; ++cur_step) {
-          start_from = start_from + diff;
-          records_to_process.push_back(start_from);
-        }
-      }
-
-      records_to_process.push_back(original_record);
-
-      for (auto& record : records_to_process) {
-        // we use it instead of index > 0
-        ++valid_value_count;
-        output.clear();
-
-
-        const auto dst_by_type = GetValueByType(record, DataType::kTypeDistance);
-        if (dst_by_type.Valid()) {
-          const auto distance(NumberToStringPrecision(dst_by_type.value, imperial ? 160934.4 : 100000.0, 5, 2));
-          output += FormatValue(DataType::kTypeDistance, distance, format);
-        }
-
-        const auto speed_by_type = GetValueByType(record, DataType::kTypeSpeed);
-        if (speed_by_type.Valid()) {
-          const auto speed(NumberToStringPrecision(speed_by_type.value, imperial ? 447.2136 : 277.77, 4, 1));
-          output += FormatValue(DataType::kTypeSpeed, speed, format);
-        }
-
-        output += ProcessStraightValue(DataType::kTypeHeartRate, record, fit_result->header_flags, format);
-
-        output += ProcessStraightValue(DataType::kTypeCadence, record, fit_result->header_flags, format);
-
-        output += ProcessStraightValue(DataType::kTypePower, record, fit_result->header_flags, format);
-
-        const auto altitude_by_type = GetValueByType(record, DataType::kTypeAltitude);
-        if (altitude_by_type.Valid()) {
-          const int64_t altitude_meters = (altitude_by_type.value / 5) - 500;
-          const int64_t altitude_value = imperial ? int64_t(altitude_meters * 3.28084) : altitude_meters;
-          output += FormatValue(DataType::kTypeAltitude, altitude_value, format);
-        }
-
-        const auto temp_by_type = GetValueByType(record, DataType::kTypeTemperature);
-        if (temp_by_type.Valid()) {
-          const int64_t temperature_value = imperial ? (temp_by_type.value * 9.0 / 5.0 + 32.0) : temp_by_type.value;
-          output += FormatValue(DataType::kTypeTemperature, temperature_value, format);
-        }
-
-        const auto timestamp_by_type = GetValueByType(record, DataType::kTypeTimeStamp);
-        const auto timestamp_by_type_next = GetValueByType(record, DataType::kTypeTimeStampNext);
-        const int64_t current_record_from = timestamp_by_type.Valid() ? timestamp_by_type.value : 0;
-        const int64_t current_record_to = timestamp_by_type_next.Valid() ? timestamp_by_type_next.value : 0;
-        const int64_t milliseconds_from = (current_record_from - first_fit_timestamp) + first_video_timestamp;
-        const int64_t milliseconds_to = (current_record_to - first_fit_timestamp) + first_video_timestamp;
-        const Time time_from(GetTime(milliseconds_from));
-        const Time time_to(GetTime(milliseconds_to));
-
-        const auto entry_data(fmt::format("{:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d} --> {:0>2d}:{:0>2d}:{:0>2d}{}{:0>3d}\n{}\n\n",
-                                          time_from.hours,
-                                          time_from.minutes,
-                                          time_from.seconds,
-                                          milliseconds_delimiter,
-                                          time_from.milliseconds,
-                                          time_to.hours,
-                                          time_to.minutes,
-                                          time_to.seconds,
-                                          milliseconds_delimiter,
-                                          time_to.milliseconds,
-                                          output));
-        subtitles_data += entry_data;
-      }
-    }
-    return subtitles_data;
-  } else {
-    throw std::runtime_error("unknown output format");
-  }
+  SPDLOG_INFO("fit records processed: {}, source size: {}, non items: {}", file_items, data_source_size, non_msg_counter);
+  return result;
 }

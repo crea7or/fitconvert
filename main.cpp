@@ -62,7 +62,7 @@ usage: fitconvert -i input_file -o output_file -t output_type -f offset -s N
 * if the offset is negative - the first second of .fit data will be displayed at abs('offset') second of the video
     it is for situations when you started your activity (that generated .fit file) after starting the video
 -s - smooth values by inserting N (0-5) smoothed values between timestamps (optional)
--v - values format: iso or imperial (optional)
+-v - values format: metric or imperial (optional, default metric)
 -d - data to process, enumerate delimited by comma (default all): speed,distance,heartrate,altitude,power,cadence,temperature
 )%";
 
@@ -70,15 +70,15 @@ int main(int argc, char* argv[]) {
   spdlog::set_pattern("[%H:%M:%S.%e] %^[%l]%$ %v");
   try {
     cxxopts::Options cmd_options("FIT converter", "FIT telemetry converter to .VTT or .JSON");
-    cmd_options.add_options()                                                               //
-        ("i,input", "", cxxopts::value<std::string>())                                      //
-        ("o,output", "", cxxopts::value<std::string>())                                     //
-        ("h,help", "")                                                                      //
-        ("d,data", "", cxxopts::value<std::string>()->default_value(""))                    //
-        ("t,type", "", cxxopts::value<std::string>()->default_value(kOutputVttTag.data()))  //
-        ("f,offset", "", cxxopts::value<int64_t>()->default_value("0"))                     //
-        ("v,values", "", cxxopts::value<std::string>()->default_value("iso"))               //
-        ("s,smooth", "", cxxopts::value<uint8_t>()->default_value("0"));                    //
+    cmd_options.add_options()                                                                 //
+        ("i,input", "", cxxopts::value<std::string>())                                        //
+        ("o,output", "", cxxopts::value<std::string>())                                       //
+        ("h,help", "")                                                                        //
+        ("d,data", "", cxxopts::value<std::string>()->default_value(""))                      //
+        ("t,type", "", cxxopts::value<std::string>()->default_value(kOutputVttTag.data()))    //
+        ("f,offset", "", cxxopts::value<int64_t>()->default_value("0"))                         //
+        ("v,values", "", cxxopts::value<std::string>()->default_value(kValuesMetric.data()))  //
+        ("s,smooth", "", cxxopts::value<uint8_t>()->default_value("0"));                        //
     const auto cmd_result = cmd_options.parse(argc, argv);
 
     if (argc < 2 || cmd_result.count("help") > 0 || cmd_result.count("input") == 0 || cmd_result.count("output") == 0) {
@@ -109,19 +109,19 @@ int main(int argc, char* argv[]) {
     }
 #endif
 
-    if (values != kValuesISO && values != kValuesImperial) {
-      SPDLOG_ERROR("unknown values format specified: '{}, only 'iso' or 'imperial' is supported", values);
+    if (output_type != kOutputJsonTag && output_type != kOutputVttTag) {
+      SPDLOG_ERROR("unknown type format specified: '{}, only 'vtt' or 'json' is supported", output_type);
+      return kToolError;
+    }
+
+    if (values != kValuesMetric && values != kValuesImperial) {
+      SPDLOG_ERROR("unknown values format specified: '{}, only 'metric' or 'imperial' is supported", values);
       return kToolError;
     }
 
     uint32_t datatypes_mask = DataTypeNamesToMask(datatypes);
     if (0 == datatypes_mask) {
       datatypes_mask = std::numeric_limits<uint32_t>::max();
-    }
-
-    if (output_type != kOutputJsonTag && output_type != kOutputVttTag) {
-      SPDLOG_ERROR("unknown output specified: '{}', only vtt and .json supported", output_type);
-      return kToolError;
     }
 
     if (smoothness > 5) {
@@ -137,15 +137,23 @@ int main(int argc, char* argv[]) {
       data_source = std::make_unique<DataSourceFile>(input_fit_file);
     }
 
-    const std::string result{
-        convert(std::move(data_source), output_type, offset, smoothness, datatypes_mask, values == kValuesImperial)};
-    if (kStdoutTag == output_file) {
-      std::cout << result;
+    const std::unique_ptr<FitResult> result =
+        Convert(std::move(data_source), output_type, offset, smoothness, datatypes_mask, values == kValuesImperial);
+    if (result->first == ParseResult::kSuccess) {
+      if (kStdoutTag == output_file) {
+        std::cout.write(result->second.GetString(), result->second.GetSize());
+        if (result->second.GetSize()) {
+          SPDLOG_ERROR("result is empty");
+        }
+      } else {
+        std::filesystem::remove(output_file);
+        std::ofstream output_stream(output_file, std::ios::out | std::ios::app | std::ios::binary);
+        output_stream.exceptions(std::ios_base::badbit);
+        output_stream.write(result->second.GetString(), result->second.GetSize());
+      }
     } else {
-      std::filesystem::remove(output_file);
-      std::ofstream output_stream(output_file, std::ios::out | std::ios::app | std::ios::binary);
-      output_stream.exceptions(std::ios_base::badbit);
-      output_stream.write(result.data(), result.size());
+      SPDLOG_ERROR(".fit file problem during processing");
+      return kToolError;
     }
   } catch (const std::ios_base::failure& fail) {
     SPDLOG_ERROR("file problem during processing: {}", fail.what());
