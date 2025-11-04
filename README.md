@@ -1,51 +1,127 @@
-# FIT telemetry converter to SRT subtitles or JSON
+# FIT Telemetry Converter – Add Live Ride Data to Your Videos (No Re-Encoding Required)
 
-This tool can be used to create subtitles overlay (without video re-encoding) for your action video with the telemetry from .fit file recorded by FIT enabled device (Garmin / Suunto / Bryton etc.). Many video players accept subtitles in this format, you can even upload these subtitles to the [Youtube](https://support.google.com/youtube/answer/2734796) video as captions.
+**FIT Telemetry Converter** is a simple yet powerful tool that turns your **.FIT activity files** (from Garmin, Wahoo, Bryton, Suunto, or any FIT-compatible device) into **subtitles** that overlay your speed, heart rate, cadence, power, and elevation directly on your ride or run videos — *without* re-encoding the video.
 
-Usage:
+That means you can record your action camera footage and your cycling computer or smartwatch activity separately, then easily synchronize them later for YouTube or local playback — all without touching the video quality.
+
+---
+
+## What It Does
+
+This tool reads data from your recorded **.FIT** file (fitness telemetry) and exports:
+- **.VTT** subtitles – directly usable by YouTube or media players (VLC, MPC-HC, etc.)
+- **.JSON** files – for web previews, advanced integration, or custom overlays
+
+You can then:
+- Upload the `.vtt` file to **YouTube** as captions (see [YouTube captions upload guide](https://support.google.com/youtube/answer/2734796))
+- Or place the `.vtt` file next to your video locally for any modern player to show real-time telemetry while watching
+
+No conversion or editing of the video file itself — subtitles simply "float" over playback.
+
+---
+
+## Why It's Useful
+
+Whether you're a cyclist, runner, or triathlete, you often record two things:
+1. A video of your ride or run
+2. A `.fit` activity file with telemetry (speed, power, heart rate, etc.)
+
+**FIT Telemetry Converter** combines those worlds by letting you overlay your performance data directly on your video timeline — perfect for:
+- **YouTube uploads** of races or rides with live metrics
+- **Training analysis** videos
+- **Action camera footage** synced with fitness sensors
+
+All with zero video re-encoding, so your footage stays 100% original quality.
+
+---
+
+## Usage
+
 ```
 usage: fitconvert -i input_file -o output_file -t output_type -f offset -s N
 ```
 
--i - path to .fit file to read data from
--o - path to .srt or .json file to write to
--t - export type (optional, default to srt)
--f - offset in milliseconds to sync video and .fit data (optional, for srt export only)
-* if the offset is positive - 'offset' second of the data from .fit file will be displayed at the first second of the video.
-    it is for situations when you started video after starting recording your activity(that generated .fit file)
-* if the offset is negative - the first second of .fit data will be displayed at abs('offset') second of the video
-    it is for situations when you started your activity (that generated .fit file) after starting the video
--s - smooth values by inserting N smoothed values between timestamps (optional, for srt export only)
+### Parameters
+| Flag | Description |
+|------|--------------|
+| `-i` | Path to `.fit` file (input data) |
+| `-o` | Path to output file (`.vtt` or `.json`) |
+| `-t` | Output type (`vtt` or `json`) – default is `vtt` |
+| `-f` | Offset in milliseconds (optional, syncs telemetry start with video start) |
+| `-s` | Smoothness value (optional, 0–5) – controls interpolation between data points for smoother graphs or frequent updates |
+| `-v` | Values format: metric or imperial (optional, default metric) |
 
+#### Example of offset
+- **Positive offset:** your video started *after* the activity → move telemetry earlier
+- **Negative offset:** you started recording the video *before* the FIT recording → delay telemetry to match
 
-You can place subtitles to the same folder as the video with the same file name(but keep .srt extension) or embed subtitles into the video file (without re-encoding). You can use [FFMPEG tool](https://www.ffmpeg.org/download.html) for embedding:
+---
+
+## Example Workflow
+
+1. Record a ride with your Garmin (or similar) and your action camera.
+2. Export the `.fit` file from your device.
+3. Run:
+   ```bash
+   fitconvert -i ride.fit -o ride.vtt -f 3000 -s 3
+   ```
+   *(This applies a 3-second sync offset and smooths telemetry)*
+4. Put `ride.vtt` next to your video file with the same name as video but with .vtt extension and play it — or upload it to YouTube as subtitles.
+
+---
+
+## Optional: Embed Subtitles into a Video
+
+You can also "bake" subtitles into your MP4 file without re-encoding:
+
+```bash
+ffmpeg -i video.mp4 -i ride.vtt -c copy -c:s mov_text output.mp4
 ```
-ffmpeg -i infile.mp4 -i infile.srt -c copy -c:s mov_text outfile.mp4 
+
+This process is instant and keeps the original quality.
+
+---
+
+## Example Results
+
+**Local playback (Media Player Classic):**
+![Sample result while playing locally](https://github.com/crea7or/fitconvert/blob/master/local_video.jpg)
+
+**YouTube upload:**
+[Watch on YouTube](https://www.youtube.com/watch?v=fV2acJ4XffM)
+![Sample result at YouTube](https://github.com/crea7or/fitconvert/blob/master/youtube.video.jpg)
+
+---
+
+## Building from Source
+
+Works on Windows and Linux.
+Tested with:
+- Visual Studio 2019/2022 (Open as Folder)
+- GCC on Ubuntu
+- Uses **Conan** for dependencies and **CMake** as the build system
+
+Example setup for Visual Studio 2022:
+```bash
+ conan install . -s build_type=Release --build=missing
+ conan install . -s build_type=Debug --build=missing
+ cmake -B build -S . -G "Visual Studio 17 2022" -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake
+ # Open build\fit2srt.sln
 ```
 
-Sample result while playing locally with Media Player Classic:
-![Sample result while playing locally with Media Player Classic](https://github.com/crea7or/fit2srt/blob/master/local_video.jpg)
+---
 
-[Medial Player Classic Download](https://github.com/clsid2/mpc-hc/releases)
+## License
 
-[Video LAN Player Download](https://www.videolan.org/vlc/)
+MIT License Copyright © 2025**pavel.sokolov@gmail.com** / **CEZEO Software Ltd.**
 
+Part of this repository includes Garmin's [FIT SDK](https://developer.garmin.com/fit/download/) (in the `fitsdk/` folder), distributed under its respective license.
 
-Sample result while playing at Youtube: [Youtube video link](https://www.youtube.com/watch?v=HXCMJMjm_XM)
-![Sample result while playing at Youtube](https://github.com/crea7or/fit2srt/blob/master/youtube.video.jpg)
+---
 
+## About This Project
 
-
-Tested in Visual Studio 2019(2022) (Open as Folder) and GCC under ubuntu. This project uses Conan as a dependency manager and CMake as a build system.
-
-Build command:
-```
-cd repo
-cmake -DCMAKE_BUILD_TYPE=Release .
-make
-```
-
-MIT License Copyright (c) 2022 pavel.sokolov@gmail.com / CEZEO software Ltd.. All rights reserved.
+FIT Telemetry Converter is part of the **CEZEO Software** ecosystem — focused on creating efficient, portable, and open tools.
 
 ```
       .:+oooooooooooooooooooooooooooooooooooooo: `/ooooooooooo/` :ooooo+/-`
@@ -58,7 +134,6 @@ MIT License Copyright (c) 2022 pavel.sokolov@gmail.com / CEZEO software Ltd.. Al
   :CEZEONCEZEOd/.ydCEZEOCEZEOdo.sNCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOEZNEZEZN+
    `+dCEZEOEZEZdoCEZEOCEZEOEZ#N+CEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOEZ#s.
       .:+ooooo/` :+oooooooooo+. .+ooooooooooooooooooooooooooooooooooooo+/.
- C E Z E O  S O F T W A R E (c) 2022   FIT telemetry to SRT subtitles converter
+ C E Z E O  S O F T W A R E (c) 2025   FIT telemetry to subtitles converter
 ```
 
-Part of this repository (fitsdk subfolder) contains 'Flexible and Interoperable Data Transfer (FIT) Protocol SDK' and these sources licensed under [FIT SDK license by Garmin](https://developer.garmin.com/fit/download/)

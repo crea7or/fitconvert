@@ -2,7 +2,7 @@
 
  MIT License
 
- Copyright (c) 2022 pavel.sokolov@gmail.com / CEZEO software Ltd. All rights reserved.
+ Copyright (c) 2025 pavel.sokolov@gmail.com / CEZEO software Ltd. All rights reserved.
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
@@ -21,6 +21,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <array>
+
 #include "gtest/gtest.h"
 #include "parser.cpp"
 
@@ -28,109 +30,58 @@
 namespace {
 
 TEST(ValuesFormatting, Positive) {
+  std::array<char, 32> buffer;
   {
-    const bool imperial = false;
-    const auto distance = NumberToStringPrecision(123456, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "1.23");
+    const Time time(100);
+    EXPECT_EQ(time.milliseconds, 100);
+    EXPECT_EQ(time.seconds, 0);
+    EXPECT_EQ(time.minutes, 0);
+    EXPECT_EQ(time.hours, 0);
+    const size_t result = format_timestamp(buffer.data(), buffer.size(), time);
+    EXPECT_TRUE(result > 0);
+    EXPECT_EQ(std::string_view("00:00:00.100"), std::string_view(buffer.data(), result));
   }
   {
-    const bool imperial = false;
-    const auto distance = NumberToStringPrecision(1234567, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "12.34");
+    const Time time(1100);
+    EXPECT_EQ(time.milliseconds, 100);
+    EXPECT_EQ(time.seconds, 1);
+    EXPECT_EQ(time.minutes, 0);
+    EXPECT_EQ(time.hours, 0);
+    const size_t result = format_timestamp(buffer.data(), buffer.size(), time);
+    EXPECT_TRUE(result > 0);
+    EXPECT_EQ(std::string_view("00:00:01.100"), std::string_view(buffer.data(), result));
   }
   {
-    const bool imperial = false;
-    const auto distance = NumberToStringPrecision(12345678, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "123.4");
+    const Time time(11111);
+    EXPECT_EQ(time.milliseconds, 111);
+    EXPECT_EQ(time.seconds, 11);
+    EXPECT_EQ(time.minutes, 0);
+    EXPECT_EQ(time.hours, 0);
+    const size_t result = format_timestamp(buffer.data(), buffer.size(), time);
+    EXPECT_TRUE(result > 0);
+    EXPECT_EQ(std::string_view("00:00:11.111"), std::string_view(buffer.data(), result));
   }
   {
-    const bool imperial = false;
-    const auto distance = NumberToStringPrecision(123456789, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "1234");
+    const Time time(123456);
+    EXPECT_EQ(time.milliseconds, 456);
+    EXPECT_EQ(time.seconds, 3);
+    EXPECT_EQ(time.minutes, 2);
+    EXPECT_EQ(time.hours, 0);
+    const size_t result = format_timestamp(buffer.data(), buffer.size(), time);
+    EXPECT_TRUE(result > 0);
+    EXPECT_EQ(std::string_view("00:02:03.456"), std::string_view(buffer.data(), result));
   }
   {
-    const bool imperial = false;
-    const auto distance = NumberToStringPrecision(1234567890, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "12345");
+    const Time time(123456789);
+    EXPECT_EQ(time.milliseconds, 789);
+    EXPECT_EQ(time.seconds, 36);
+    EXPECT_EQ(time.minutes, 17);
+    EXPECT_EQ(time.hours, 34);
+    const size_t result = format_timestamp(buffer.data(), buffer.size(), time);
+    EXPECT_TRUE(result > 0);
+    EXPECT_EQ(std::string_view("34:17:36.789"), std::string_view(buffer.data(), result));
   }
-  {
-    const bool imperial = false;
-    const auto distance = NumberToStringPrecision(12345678901, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "12345");
-  }
-
-  {
-    const bool imperial = true;
-    const auto distance = NumberToStringPrecision(123456, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "0.76");
-  }
-  {
-    const bool imperial = true;
-    const auto distance = NumberToStringPrecision(1234567, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "7.67");
-  }
-  {
-    const bool imperial = true;
-    const auto distance = NumberToStringPrecision(12345678, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "76.71");
-  }
-  {
-    const bool imperial = true;
-    const auto distance = NumberToStringPrecision(123456789, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "767.1");
-  }
-  {
-    const bool imperial = true;
-    const auto distance = NumberToStringPrecision(1234567890, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "7671");
-  }
-  {
-    const bool imperial = true;
-    const auto distance = NumberToStringPrecision(12345678901, imperial ? 160934.4 : 100000.0, 5, 2);
-    EXPECT_EQ(distance, "76712");
-  }
-
-  {
-    const bool imperial = false;
-    const auto speed = NumberToStringPrecision(123, imperial ? 447.2136 : 277.77, 4, 1);
-    EXPECT_EQ(speed, "0.4");
-  }
-  {
-    const bool imperial = false;
-    const auto speed = NumberToStringPrecision(1234, imperial ? 447.2136 : 277.77, 4, 1);
-    EXPECT_EQ(speed, "4.4");
-  }
-  {
-    const bool imperial = false;
-    const auto speed = NumberToStringPrecision(12345, imperial ? 447.2136 : 277.77, 4, 1);
-    EXPECT_EQ(speed, "44.4");
-  }
-  {
-    const bool imperial = false;
-    const auto speed = NumberToStringPrecision(123456, imperial ? 447.2136 : 277.77, 4, 1);
-    EXPECT_EQ(speed, "444");
-  }
-
-  {
-    const bool imperial = true;
-    const auto speed = NumberToStringPrecision(123, imperial ? 447.2136 : 277.77, 4, 1);
-    EXPECT_EQ(speed, "0.2");
-  }
-  {
-    const bool imperial = true;
-    const auto speed = NumberToStringPrecision(1234, imperial ? 447.2136 : 277.77, 4, 1);
-    EXPECT_EQ(speed, "2.7");
-  }
-  {
-    const bool imperial = true;
-    const auto speed = NumberToStringPrecision(12345, imperial ? 447.2136 : 277.77, 4, 1);
-    EXPECT_EQ(speed, "27.6");
-  }
-  {
-    const bool imperial = true;
-    const auto speed = NumberToStringPrecision(123456, imperial ? 447.2136 : 277.77, 4, 1);
-    EXPECT_EQ(speed, "276");
-  }
+  { EXPECT_THROW(Time(1234567890), std::invalid_argument); }
 }
 
 }  // namespace

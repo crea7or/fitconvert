@@ -77,9 +77,9 @@ static void BM_FitOnlyExport(benchmark::State& state) {
   }
 }
 
-BENCHMARK(BM_JsonExport)->Repetitions(3);
-BENCHMARK(BM_VttExpor)->Repetitions(3);
-BENCHMARK(BM_FitOnlyExport)->Repetitions(3);
+BENCHMARK(BM_JsonExport);
+BENCHMARK(BM_VttExpor);
+BENCHMARK(BM_FitOnlyExport);
 
 // Run the benchmark
 int main(int argc, char** argv) {
