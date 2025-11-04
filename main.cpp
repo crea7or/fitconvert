@@ -20,9 +20,10 @@
 */
 
 #include <fcntl.h>
-#include <io.h>
 #include <spdlog/spdlog.h>
-
+#ifdef _WIN32
+#include <io.h>
+#endif
 #include <cxxopts.hpp>
 #include <filesystem>
 #include <fstream>

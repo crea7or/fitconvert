@@ -22,7 +22,6 @@
 #include "datasource.h"
 
 #include <fcntl.h>
-#include <io.h>
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
@@ -34,7 +33,7 @@ DataSource::Status DataSource::ReadDataInternal(std::istream& stream, Buffer& bu
   try {
     stream.read(buffer.GetDataPtr(), buffer.GetBufferSize());
     buffer.SetDataSize(stream.gcount());
-    if (stream.eof() || stream.gcount() == 0) {
+    if (stream.eof() || stream.gcount() == 0u) {
       return Status::kEndOfFile;
     } else if (stream.good()) {
       return Status::kContinueRead;
@@ -66,7 +65,7 @@ DataSource::Status DataSourceStdin::ReadData(Buffer& buffer) {
 }
 
 size_t DataSourceStdin::GetSize() const {
-  return 0;
+  return 0u;
 }
 
 DataSourceMemory::DataSourceMemory(const uint8_t* buffer_ptr, const size_t count)
@@ -75,8 +74,8 @@ DataSourceMemory::DataSourceMemory(const uint8_t* buffer_ptr, const size_t count
 DataSource::Status DataSourceMemory::ReadData(Buffer& buffer) {
   const size_t remaining_data{count_ - position_};
   const uint8_t* next_data_ptr{buffer_ptr_ + position_};
-  if (0 == remaining_data) {
-    buffer.SetDataSize(0);
+  if (0u == remaining_data) {
+    buffer.SetDataSize(0u);
     return Status::kError;
   }
 

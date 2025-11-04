@@ -41,7 +41,7 @@ constexpr std::string_view kVttHeaderTag("WEBVTT\n\n");
 constexpr std::string_view kVttTimeSeparator(" --> ");
 constexpr std::string_view kVttOffsetMessage("\n< .fit data is not yet available >");
 constexpr std::string_view kVttEndMessage("\n< no more .fit data >");
-constexpr std::string_view kVttMessage(u8"\nmade with ❤️ by fitconvert\n\n");
+constexpr std::string_view kVttMessage("\nmade with ❤️ by fitconvert\n\n");
 
 // adapter for fmt::format_to to write directly into a RapidJSON StringBuffer
 struct StringBufferAppender {
@@ -96,7 +96,7 @@ class OutputBuffer final : public rapidjson::StringBuffer {
   }
 
   void AppendString(const char* s, size_t size) {
-    for (size_t i = 0; i < size; ++i) {
+    for (size_t i = 0u; i < size; ++i) {
       Put(s[i]);
     }
   }
@@ -159,31 +159,31 @@ constexpr std::array<std::pair<std::string_view, std::string_view>, DataType::kT
 using FormatData = std::array<std::pair<std::string_view, size_t>, DataType::kTypeMax>;
 
 constexpr FormatData kMetricFormat = {
-    {{u8" km/h", 12},  // kTypeSpeed km/h
-     {u8" km", 10},    // kTypeDistance km
-     {u8"❤️", 11},      // kTypeHeartRate bpm
-     {u8" m", 8},      // kTypeAltitude meters
-     {u8"⚡", 9},      // kTypePower watt
-     {u8"↻", 8},       // kTypeCadence rotations rpm
-     {u8"°C", 8},      // kTypeTemperature celsius
-     {u8"", 0},        // kTypeTimeStamp
-     {u8"", 0},        // kTypeLatitude
-     {u8"", 0},        // kTypeLongitude
-     {u8"", 0}}        // kTypeTimeStampNext
+    {{" km/h", 12},  // kTypeSpeed km/h
+     {" km", 10},    // kTypeDistance km
+     {"❤️", 11},      // kTypeHeartRate bpm
+     {" m", 8},      // kTypeAltitude meters
+     {"⚡", 9},      // kTypePower watt
+     {"↻", 8},       // kTypeCadence rotations rpm
+     {"°C", 8},      // kTypeTemperature celsius
+     {"", 0},        // kTypeTimeStamp
+     {"", 0},        // kTypeLatitude
+     {"", 0},        // kTypeLongitude
+     {"", 0}}        // kTypeTimeStampNext
 };
 
 constexpr FormatData kImperialFormat = {
-    {{u8" mp/h", 12},  // kTypeSpeed km/h
-     {u8" mi", 10},    // kTypeDistance km
-     {u8"❤️", 11},      // kTypeHeartRate bpm
-     {u8" ft", 8},     // kTypeAltitude meters
-     {u8"⚡", 9},      // kTypePower watt
-     {u8"↻", 8},       // kTypeCadence rotations rpm
-     {u8"°F", 8},      // kTypeTemperature celsius
-     {u8"", 0},        // kTypeTimeStamp
-     {u8"", 0},        // kTypeLatitude
-     {u8"", 0},        // kTypeLongitude
-     {u8"", 0}}        // kTypeTimeStampNext
+    {{" mp/h", 12},  // kTypeSpeed km/h
+     {" mi", 10},    // kTypeDistance km
+     {"❤️", 11},      // kTypeHeartRate bpm
+     {" ft", 8},     // kTypeAltitude meters
+     {"⚡", 9},      // kTypePower watt
+     {"↻", 8},       // kTypeCadence rotations rpm
+     {"°F", 8},      // kTypeTemperature celsius
+     {"", 0},        // kTypeTimeStamp
+     {"", 0},        // kTypeLatitude
+     {"", 0},        // kTypeLongitude
+     {"", 0}}        // kTypeTimeStampNext
 };
 
 struct Time {
@@ -207,7 +207,7 @@ struct Time {
 };
 
 DataType NameToDataType(std::string_view name) {
-  for (auto i = 0; i < kDataTypes.size(); i++) {
+  for (auto i = 0u; i < kDataTypes.size(); i++) {
     if (kDataTypes[i].first == name) {
       return static_cast<DataType>(i);
     }
@@ -229,13 +229,13 @@ size_t format_value_suffix(T value,                        //
   if constexpr (std::is_floating_point_v<T>) {
     auto res = std::to_chars(buffer_ptr, buffer_ptr + buffer_size, value, std::chars_format::fixed, precision);
     if (res.ec != std::errc{}) {
-      return 0;  // conversion failed
+      return 0u;  // conversion failed
     }
     formatted_ptr = res.ptr;
   } else if constexpr (std::is_integral_v<T>) {
     auto res = std::to_chars(buffer_ptr, buffer_ptr + buffer_size, value);
     if (res.ec != std::errc{}) {
-      return 0;  // conversion failed
+      return 0u;  // conversion failed
     }
     formatted_ptr = res.ptr;
   }
@@ -245,7 +245,7 @@ size_t format_value_suffix(T value,                        //
   // append suffix
   const size_t suffix_len = suffix.size();
   if (length + suffix_len >= buffer_size)
-    return 0;  // no space left
+    return 0u;  // no space left
 
   std::memcpy(formatted_ptr, suffix.data(), suffix_len);
   formatted_ptr += suffix_len;
@@ -264,7 +264,7 @@ size_t format_value_suffix(T value,                        //
   */
   // pad to total width (spaces on left)
   const size_t pad = total_width > length ? total_width - length : 0;
-  if (pad > 0) {
+  if (pad > 0u) {
     std::memmove(buffer_ptr + pad, buffer_ptr, length);
     std::memset(buffer_ptr, ' ', pad);
     length += pad;
@@ -276,26 +276,26 @@ size_t format_value_suffix(T value,                        //
 
 size_t format_timestamp(char* buffer_ptr, const size_t buffer_size, const Time& time) {
   if (buffer_size < 16)
-    return 0;
+    return 0u;
 
   char* ptr = buffer_ptr;
 
   auto write_2digits = [&](uint8_t value) -> bool {
-    if (value < 0 || value > 99)
+    if (value < 0u || value > 99u)
       return false;
-    uint8_t tens = (value / 10) % 10;
-    uint8_t ones = value % 10;
+    const uint8_t tens = (value / 10u) % 10u;
+    const uint8_t ones = value % 10u;
     *ptr++ = static_cast<char>('0' + tens);
     *ptr++ = static_cast<char>('0' + ones);
     return true;
   };
 
   auto write_3digits = [&](uint16_t value) -> bool {
-    if (value < 0 || value > 999)
+    if (value < 0u || value > 999u)
       return false;
-    uint8_t hundreds = value / 100;
-    uint8_t tens = (value / 10) % 10;
-    uint8_t ones = value % 10;
+    const uint8_t hundreds = value / 100u;
+    const uint8_t tens = (value / 10u) % 10u;
+    const uint8_t ones = value % 10u;
     *ptr++ = static_cast<char>('0' + hundreds);
     *ptr++ = static_cast<char>('0' + tens);
     *ptr++ = static_cast<char>('0' + ones);
@@ -303,16 +303,16 @@ size_t format_timestamp(char* buffer_ptr, const size_t buffer_size, const Time& 
   };
 
   if (!write_2digits(time.hours))
-    return 0;
+    return 0u;
   *ptr++ = ':';
   if (!write_2digits(time.minutes))
-    return 0;
+    return 0u;
   *ptr++ = ':';
   if (!write_2digits(time.seconds))
-    return 0;
+    return 0u;
   *ptr++ = '.';
   if (!write_3digits(time.milliseconds))
-    return 0;
+    return 0u;
   return static_cast<size_t>(ptr - buffer_ptr);
 }
 
@@ -330,7 +330,7 @@ struct FitData {
 
   void ApplyData(const FIT_RECORD_MESG* fit_record_ptr, const uint32_t collect_data_types) {
     memset(values, 0, sizeof(values));
-    available_types = 0;
+    available_types = 0u;
     const int64_t msec = static_cast<int64_t>(fit_record_ptr->timestamp) * 1000;
     // timestamps
     ApplyValue(DataType::kTypeTimeStamp, msec, collect_data_types);
@@ -431,7 +431,7 @@ struct FitData {
     const Time time_from(values[DataType::kTypeTimeStamp]);
     const Time time_to(values[DataType::kTypeTimeStampNext]);
     const FormatData& format = imperial ? kImperialFormat : kMetricFormat;
-    std::array<char, 32> formatting_buffer;
+    std::array<char, 32u> formatting_buffer;
     {
       const size_t size = format_timestamp(formatting_buffer.data(), formatting_buffer.size(), time_from);
       writer.AppendString(formatting_buffer.data(), size);
@@ -563,7 +563,7 @@ struct FitData {
 
  private:
   int64_t values[DataType::kTypeMax];
-  uint32_t available_types{0};
+  uint32_t available_types{0u};
 
  private:
   template <typename T>
@@ -589,22 +589,22 @@ struct FitData {
 // names line delimited by commas
 uint32_t DataTypeNamesToMask(std::string_view names) {
   std::vector<std::string_view> types;
-  size_t start = 0;
-  size_t end = 0;
+  size_t start = 0u;
+  size_t end = 0u;
 
   while ((end = names.find(",", start)) != std::string::npos) {
     const std::string_view tag(names.substr(start, end - start));
-    if (tag.size() > 0) {
+    if (tag.size() > 0u) {
       types.emplace_back(tag);
     }
-    start = end + 1;
+    start = end + 1u;
   }
   const std::string_view last_tag(names.substr(start, names.size()));
-  if (last_tag.size() > 0) {
+  if (last_tag.size() > 0u) {
     types.emplace_back(last_tag);  // last token
   }
 
-  uint32_t types_mask = 0;
+  uint32_t types_mask = 0u;
   for (auto type : types) {
     const auto dt = NameToDataType(type);
     if (dt != DataType::kTypeMax) {
@@ -628,21 +628,21 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
   const bool vtt_output = (output_type == kOutputVttTag);
 
   // used_data_types - mask of values DataType values: 0x01 << DataType
-  uint32_t used_data_types{0};
-  uint32_t file_items{0};
-  uint32_t non_msg_counter{0};
+  uint32_t used_data_types{0u};
+  uint32_t file_items{0u};
+  uint32_t non_msg_counter{0u};
   int64_t first_fit_timestamp{0};
   int64_t first_video_timestamp{0};
 
   const size_t data_source_size = data_source_ptr->GetSize();
   FIT_CONVERT_RETURN fit_status = FIT_CONVERT_CONTINUE;
   FitConvert_Init(FIT_TRUE);
-  Buffer data_buffer(4096 * 16);
+  Buffer data_buffer(4096u * 16u);
 
   OutputBuffer write_buffer;
   // start json creation
   rapidjson::Writer<rapidjson::StringBuffer> writer(write_buffer);
-  write_buffer.Reserve((data_source_size == 0 ? (2048 * 1024) : (data_source_size + (data_source_size >> 2))));
+  write_buffer.Reserve((data_source_size == 0u ? (2048u * 1024u) : (data_source_size + (data_source_size >> 2u))));
   if (json_output) {
     writer.SetMaxDecimalPlaces(2);
     writer.StartObject();
@@ -672,7 +672,7 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
   FitData* previous_fot_data_ptr = nullptr;
 
   while ((DataSource::Status::kError != data_source_ptr->ReadData(data_buffer)) && (fit_status == FIT_CONVERT_CONTINUE) &&
-         data_buffer.GetDataSize() > 0) {
+         data_buffer.GetDataSize() > 0u) {
     while (fit_status = FitConvert_Read(data_buffer.GetDataPtr(), static_cast<FIT_UINT32>(data_buffer.GetDataSize())),
            fit_status == FIT_CONVERT_MESSAGE_AVAILABLE) {
       if (FitConvert_GetMessageNumber() != FIT_MESG_NUM_RECORD) {
@@ -694,8 +694,8 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
           first_video_timestamp = std::abs(offset);
           if (vtt_output) {
             // write message that .fit data is not yet ready
-            Time start(0);
-            Time end(first_video_timestamp);
+            const Time start(0);
+            const Time end(first_video_timestamp);
             std::array<char, 32> formatting_buffer;
             const size_t size_start = format_timestamp(formatting_buffer.data(), formatting_buffer.size(), start);
             write_buffer.AppendString(formatting_buffer.data(), size_start);
@@ -730,14 +730,14 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
         continue;
       }
       // process new_fit_data_ptr (actually the previous one as we swaped them) and we have new one in previous_fit_data_ptr
-      if (smoothness > 0) {
-        const int64_t smoothed_diff_ms = (new_fit_from_ms - new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp)) / (smoothness + 1);
+      if (smoothness > 0u) {
+        const int64_t smoothed_diff_ms = (new_fit_from_ms - new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp)) / (smoothness + 1u);
         new_fit_data_ptr->SetValue(DataType::kTypeTimeStampNext, new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp) + smoothed_diff_ms);
         Export(new_fit_data_ptr);
 
         FitData diff = *previous_fot_data_ptr - *new_fit_data_ptr;
-        diff = diff / (smoothness + 1);
-        for (uint8_t cur_step = 0; cur_step < smoothness; ++cur_step) {
+        diff = diff / (smoothness + 1u);
+        for (uint8_t cur_step = 0u; cur_step < smoothness; ++cur_step) {
           *new_fit_data_ptr = *new_fit_data_ptr + diff;
           new_fit_data_ptr->SetValue(DataType::kTypeTimeStampNext, new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp) + smoothed_diff_ms);
           Export(new_fit_data_ptr);
@@ -761,8 +761,8 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
           previous_fot_data_ptr->GetValue(DataType::kTypeTimeStamp) + 1000);  // last item have no the next, to take time from
       Export(previous_fot_data_ptr);
       if (vtt_output) {
-        Time start(previous_fot_data_ptr->GetValue(DataType::kTypeTimeStampNext));
-        Time end(previous_fot_data_ptr->GetValue(DataType::kTypeTimeStampNext) + 60000);
+        const Time start(previous_fot_data_ptr->GetValue(DataType::kTypeTimeStampNext));
+        const Time end(previous_fot_data_ptr->GetValue(DataType::kTypeTimeStampNext) + 60000);
         std::array<char, 32> formatting_buffer;
         const size_t size_start = format_timestamp(formatting_buffer.data(), formatting_buffer.size(), start);
         write_buffer.AppendString(formatting_buffer.data(), size_start);

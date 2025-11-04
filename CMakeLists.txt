@@ -2,7 +2,7 @@
 
 project("fitconvert")
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
@@ -36,6 +36,7 @@ set(TARGET_SRC
 # conan install . -s build_type=Debug --build=missing
 # cmake -B build -S . -G "Visual Studio 17 2022" -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake
 # Open build\fit2srt.sln
+# for Ubuntu you need clang or gcc with c++20 support (same for libc++) due to use of std::to_chars with 5th params
 
 find_package(spdlog REQUIRED)
 find_package(RapidJSON REQUIRED)

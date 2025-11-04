@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     spdlog::set_pattern("[%H:%M:%S.%e] %^[%l]%$ %v");
     spdlog::set_level(spdlog::level::err);
 
-    fit_file = readFileToBuffer("C:\\Sources\\fit2srt\\build\\Release\\300.fit");
+    fit_file = readFileToBuffer("300.fit");
 
     ::benchmark::Initialize(&argc, argv);
     ::benchmark::RunSpecifiedBenchmarks();
