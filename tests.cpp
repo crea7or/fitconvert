@@ -81,7 +81,35 @@ TEST(ValuesFormatting, Positive) {
     EXPECT_TRUE(result > 0);
     EXPECT_EQ(std::string_view("34:17:36.789"), std::string_view(buffer.data(), result));
   }
+}
+
+TEST(ValuesFormatting, Negative) {
   { EXPECT_THROW(Time(1234567890), std::invalid_argument); }
+}
+
+TEST(ValuesFormattingWithSuffix, Positive) {
+  std::array<char, 32> buffer;
+  FormatData format = kMetricFormat;
+  {
+    const size_t size = format_value_suffix(
+        0.123, buffer.data(), buffer.size(), format[DataType::kTypeDistance].second, format[DataType::kTypeDistance].first, 2);
+    EXPECT_EQ(std::string_view(buffer.data(), size), "   0.12 km");
+  }
+  {
+    const size_t size = format_value_suffix(
+        1.234, buffer.data(), buffer.size(), format[DataType::kTypeSpeed].second, format[DataType::kTypeSpeed].first, 1);
+    EXPECT_EQ(std::string_view(buffer.data(), size), "    1.2 km/h");
+  }
+  {
+    const size_t size = format_value_suffix(
+        12345, buffer.data(), buffer.size(), format[DataType::kTypeAltitude].second, format[DataType::kTypeAltitude].first, 0);
+    EXPECT_EQ(std::string_view(buffer.data(), size), " 12345 m");
+  }
+  {
+    const size_t size = format_value_suffix(
+        1234567, buffer.data(), buffer.size(), format[DataType::kTypeAltitude].second, format[DataType::kTypeAltitude].first, 0);
+    EXPECT_EQ(std::string_view(buffer.data(), size), "1234567 m");
+  }
 }
 
 }  // namespace

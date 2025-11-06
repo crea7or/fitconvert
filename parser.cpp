@@ -799,6 +799,12 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
       writer.Int64(first_fit_timestamp);
       writer.Key("offset");
       writer.Int64(offset);
+      writer.Key("units");
+      if (imperial) {
+        writer.String(rapidjson::StringRef(kValuesImperial.data(), kValuesImperial.size()));
+      } else {
+        writer.String(rapidjson::StringRef(kValuesMetric.data(), kValuesMetric.size()));
+      }
       writer.EndObject();
     }
 

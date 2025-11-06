@@ -34,8 +34,12 @@ set(TARGET_SRC
 # init for vs 2002
 # conan install . -s build_type=Release --build=missing
 # conan install . -s build_type=Debug --build=missing
+# init for vs 2022 and cmake >= 3.23
+# cmake --preset conan-default
+# init for vs 2022 and cmake < 3.23
 # cmake -B build -S . -G "Visual Studio 17 2022" -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake
-# Open build\fit2srt.sln
+# open build\fit2srt.sln
+# same for other IDEs
 # for Ubuntu you need clang or gcc with c++20 support (same for libc++) due to use of std::to_chars with 5th params
 
 find_package(spdlog REQUIRED)
