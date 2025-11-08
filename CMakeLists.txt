@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.15)
+﻿cmake_minimum_required(VERSION 3.31)
 
 project("fitconvert")
 
@@ -30,17 +30,19 @@ set(TARGET_SRC
   "datasource.h"
   )
 
-
-# init for vs 2002
 # conan install . -s build_type=Release --build=missing
 # conan install . -s build_type=Debug --build=missing
-# init for vs 2022 and cmake >= 3.23
+# init for cmake >= 3.23
 # cmake --preset conan-default
-# init for vs 2022 and cmake < 3.23
+# init for cmake < 3.23
+# vs2022
 # cmake -B build -S . -G "Visual Studio 17 2022" -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake
 # open build\fit2srt.sln
-# same for other IDEs
+# other
+# cmake <path> -G Ninja -DCMAKE_TOOLCHAIN_FILE=generators/conan_toolchain.cmake  -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_BUILD_TYPE=Release
 # for Ubuntu you need clang or gcc with c++20 support (same for libc++) due to use of std::to_chars with 5th params
+# build
+# cmake --build build/Release --config Release
 
 find_package(spdlog REQUIRED)
 find_package(RapidJSON REQUIRED)

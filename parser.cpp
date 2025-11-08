@@ -159,13 +159,13 @@ constexpr std::array<std::pair<std::string_view, std::string_view>, DataType::kT
 using FormatData = std::array<std::pair<std::string_view, size_t>, DataType::kTypeMax>;
 
 constexpr FormatData kMetricFormat = {
-    {{" km/h", 12},  // kTypeSpeed km/h
-     {" km", 10},    // kTypeDistance km
-     {"❤️", 11},      // kTypeHeartRate bpm
-     {" m", 8},      // kTypeAltitude meters
-     {"⚡", 9},      // kTypePower watt
-     {"↻", 8},       // kTypeCadence rotations rpm
-     {"°C", 8},      // kTypeTemperature celsius
+    {{" km/h ", 5},  // kTypeSpeed km/h
+     {" km ", 6},    // kTypeDistance km
+     {"❤️ ", 4},      // kTypeHeartRate bpm
+     {" m↑", 5},     // kTypeAltitude meters
+     {"⚡ ", 5},      // kTypePower watt
+     {" ↻ ", 4},      // kTypeCadence rotations rpm
+     {"°C ", 3},      // kTypeTemperature celsius
      {"", 0},        // kTypeTimeStamp
      {"", 0},        // kTypeLatitude
      {"", 0},        // kTypeLongitude
@@ -173,13 +173,13 @@ constexpr FormatData kMetricFormat = {
 };
 
 constexpr FormatData kImperialFormat = {
-    {{" mp/h", 12},  // kTypeSpeed km/h
-     {" mi", 10},    // kTypeDistance km
-     {"❤️", 11},      // kTypeHeartRate bpm
-     {" ft", 8},     // kTypeAltitude meters
-     {"⚡", 9},      // kTypePower watt
-     {"↻", 8},       // kTypeCadence rotations rpm
-     {"°F", 8},      // kTypeTemperature celsius
+    {{" mp/h ", 5},  // kTypeSpeed km/h
+     {" mi ", 6},    // kTypeDistance km
+     {"❤️ ", 4},      // kTypeHeartRate bpm
+     {" ft↑", 5},    // kTypeAltitude meters
+     {"⚡ ", 5},      // kTypePower watt
+     {" ↻ ", 4},      // kTypeCadence rotations rpm
+     {"°F ", 3},      // kTypeTemperature celsius
      {"", 0},        // kTypeTimeStamp
      {"", 0},        // kTypeLatitude
      {"", 0},        // kTypeLongitude
@@ -242,15 +242,6 @@ size_t format_value_suffix(T value,                        //
 
   size_t length = static_cast<size_t>(formatted_ptr - buffer_ptr);
 
-  // append suffix
-  const size_t suffix_len = suffix.size();
-  if (length + suffix_len >= buffer_size)
-    return 0u;  // no space left
-
-  std::memcpy(formatted_ptr, suffix.data(), suffix_len);
-  formatted_ptr += suffix_len;
-  length += suffix_len;
-
   /*
   * // pad to total width (spaces on right)
   if (length < total_width) {
@@ -268,7 +259,18 @@ size_t format_value_suffix(T value,                        //
     std::memmove(buffer_ptr + pad, buffer_ptr, length);
     std::memset(buffer_ptr, ' ', pad);
     length += pad;
+    formatted_ptr += pad;
   }
+
+  // append suffix
+  const size_t suffix_len = suffix.size();
+  if (length + suffix_len >= buffer_size) {
+    return 0u;  // no space left
+  }
+
+  std::memcpy(formatted_ptr, suffix.data(), suffix_len);
+  formatted_ptr += suffix_len;
+  length += suffix_len;
 
   return length;
 }
@@ -443,17 +445,6 @@ struct FitData {
     }
     writer.NewLine();
 
-    if (available_types & kDataTypeMasks[DataType::kTypeDistance]) {
-      const size_t size = format_value_suffix(static_cast<double>(values[DataType::kTypeDistance]) / (imperial ? 160934.4 : 100000.0),
-                                              formatting_buffer.data(),
-                                              formatting_buffer.size(),
-                                              format[DataType::kTypeDistance].second,
-                                              format[DataType::kTypeDistance].first,
-                                              2);
-
-      writer.AppendString(formatting_buffer.data(), size);
-    }
-
     if (available_types & kDataTypeMasks[DataType::kTypeSpeed]) {
       // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
       const size_t size = format_value_suffix(static_cast<double>(values[DataType::kTypeSpeed]) / (imperial ? 447.2136 : 277.77),
@@ -462,6 +453,17 @@ struct FitData {
                                               format[DataType::kTypeSpeed].second,
                                               format[DataType::kTypeSpeed].first,
                                               1);
+
+      writer.AppendString(formatting_buffer.data(), size);
+    }
+
+    if (available_types & kDataTypeMasks[DataType::kTypeDistance]) {
+      const size_t size = format_value_suffix(static_cast<double>(values[DataType::kTypeDistance]) / (imperial ? 160934.4 : 100000.0),
+                                              formatting_buffer.data(),
+                                              formatting_buffer.size(),
+                                              format[DataType::kTypeDistance].second,
+                                              format[DataType::kTypeDistance].first,
+                                              2);
 
       writer.AppendString(formatting_buffer.data(), size);
     }

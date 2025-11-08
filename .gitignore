@@ -16,3 +16,5 @@ build_log.txt
 out/*
 CMakeSettings.json
 CMakeUserPresets.json
+init.bat
+init.sh
