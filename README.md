@@ -4,6 +4,9 @@
 
 That means you can record your action camera footage and your cycling computer or smartwatch activity separately, then easily synchronize them later for YouTube or local playback — all without touching the video quality.
 
+
+Don’t want to deal with command-line tools? Try the web version - it even supports YouTube sync! Click here for the web-based [fitconvert](https://crea7or.link/fitconvert/).
+
 ---
 
 ## What It Does
