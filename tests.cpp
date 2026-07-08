@@ -89,26 +89,70 @@ TEST(ValuesFormatting, Negative) {
 
 TEST(ValuesFormattingWithSuffix, Positive) {
   std::array<char, 32> buffer;
-  FormatData format = kMetricFormat;
+  const FormatData kMetricFormat = {
+      {{" km/h ", 5},  // kTypeSpeed km/h
+       {" km ", 6},    // kTypeDistance km
+       {" bpm ", 4},   // kTypeHeartRate bpm
+       {" m ", 5},     // kTypeAltitude meters
+       {" w ", 5},     // kTypePower watt
+       {" rpm ", 4},   // kTypeCadence rotations rpm
+       {" C ", 3},     // kTypeTemperature celsius
+       {"", 0},        // kTypeTimeStamp
+       {"", 0},        // kTypeLatitude
+       {"", 0},        // kTypeLongitude
+       {"", 0},        // kTypeTimeStampNext
+       {"%", 5}}       // kTypeGradient
+  };
+
   {
-    const size_t size = format_value_suffix(
-        0.123, buffer.data(), buffer.size(), format[DataType::kTypeDistance].second, format[DataType::kTypeDistance].first, 2);
-    EXPECT_EQ(std::string_view(buffer.data(), size), "   0.12 km");
+    const size_t size = format_value_suffix(0.123,
+                                            buffer.data(),
+                                            buffer.size(),
+                                            kMetricFormat[DataType::kTypeDistance].second,
+                                            kMetricFormat[DataType::kTypeDistance].first,
+                                            2);
+    EXPECT_EQ(std::string_view(buffer.data(), size), std::string_view("  0.12 km "));
   }
+
   {
-    const size_t size = format_value_suffix(
-        1.234, buffer.data(), buffer.size(), format[DataType::kTypeSpeed].second, format[DataType::kTypeSpeed].first, 1);
-    EXPECT_EQ(std::string_view(buffer.data(), size), "    1.2 km/h");
+    const size_t size = format_value_suffix(0.123, buffer.data(), buffer.size(), 5, kMetricFormat[DataType::kTypeDistance].first, 2);
+    EXPECT_EQ(std::string_view(buffer.data(), size), std::string_view(" 0.12 km "));
   }
+
   {
-    const size_t size = format_value_suffix(
-        12345, buffer.data(), buffer.size(), format[DataType::kTypeAltitude].second, format[DataType::kTypeAltitude].first, 0);
-    EXPECT_EQ(std::string_view(buffer.data(), size), " 12345 m");
+    const size_t size = format_value_suffix(0.123, buffer.data(), buffer.size(), 4, kMetricFormat[DataType::kTypeDistance].first, 3);
+    EXPECT_EQ(std::string_view(buffer.data(), size), std::string_view("0.123 km "));
   }
+
+  {
+    const size_t size = format_value_suffix(0.123, buffer.data(), buffer.size(), 4, kMetricFormat[DataType::kTypeDistance].first, 1);
+    EXPECT_EQ(std::string_view(buffer.data(), size), std::string_view(" 0.1 km "));
+  }
+
   {
     const size_t size = format_value_suffix(
-        1234567, buffer.data(), buffer.size(), format[DataType::kTypeAltitude].second, format[DataType::kTypeAltitude].first, 0);
-    EXPECT_EQ(std::string_view(buffer.data(), size), "1234567 m");
+        1.234, buffer.data(), buffer.size(), kMetricFormat[DataType::kTypeSpeed].second, kMetricFormat[DataType::kTypeSpeed].first, 1);
+    EXPECT_EQ(std::string_view(buffer.data(), size), std::string_view("  1.2 km/h "));
+  }
+
+  {
+    const size_t size = format_value_suffix(12345,
+                                            buffer.data(),
+                                            buffer.size(),
+                                            kMetricFormat[DataType::kTypeAltitude].second,
+                                            kMetricFormat[DataType::kTypeAltitude].first,
+                                            0);
+    EXPECT_EQ(std::string_view(buffer.data(), size), std::string_view("12345 m "));
+  }
+
+  {
+    const size_t size = format_value_suffix(1234567,
+                                            buffer.data(),
+                                            buffer.size(),
+                                            kMetricFormat[DataType::kTypeAltitude].second,
+                                            kMetricFormat[DataType::kTypeAltitude].first,
+                                            0);
+    EXPECT_EQ(std::string_view(buffer.data(), size), std::string_view("1234567 m "));
   }
 }
 

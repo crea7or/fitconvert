@@ -1,4 +1,4 @@
-/*
+﻿/*
 
  MIT License
 
@@ -33,6 +33,9 @@
 #include "parser.h"
 
 
+const std::string kFmtMetricFormat("{speed:5.1f} km/h;{distance:6.1f} km;{heartrate:4} bpm;{altitude:5} m;{power:5} w;{temperature:4} C;{cadence:4} rpm;{gradient:3.1f} %");
+const std::string_view kDataTypesorder("speed,distance,heartrate,power,cadence,temperature,gradient,altitude");
+
 std::vector<uint8_t> readFileToBuffer(const std::string& path) {
   std::ifstream file(path, std::ios::binary | std::ios::ate);
   if (!file)
@@ -56,7 +59,15 @@ std::vector<uint8_t> fit_file;
 static void BM_VttExpor(benchmark::State& state) {
   for (auto _ : state) {
     auto data_source = std::make_unique<DataSourceMemory>(fit_file.data(), fit_file.size());
-    const std::unique_ptr<FitResult> result{Convert(std::move(data_source), "vtt", 0, 0, 0xFFFFFF, false)};
+    const std::unique_ptr<FitResult> result{Convert(std::move(data_source), "vtt", 0, 0, kDataTypesorder, false)};
+    benchmark::DoNotOptimize(result);
+  }
+}
+
+static void BM_VttExporFmt(benchmark::State& state) {
+  for (auto _ : state) {
+    auto data_source = std::make_unique<DataSourceMemory>(fit_file.data(), fit_file.size());
+    const std::unique_ptr<FitResult> result{Convert(std::move(data_source), "vtt", 0, 0, kDataTypesorder, false, kFmtMetricFormat)};
     benchmark::DoNotOptimize(result);
   }
 }
@@ -64,7 +75,7 @@ static void BM_VttExpor(benchmark::State& state) {
 static void BM_JsonExport(benchmark::State& state) {
   for (auto _ : state) {
     auto data_source = std::make_unique<DataSourceMemory>(fit_file.data(), fit_file.size());
-    const std::unique_ptr<FitResult> result{Convert(std::move(data_source), "json", 0, 0, 0xFFFFFF, false)};
+    const std::unique_ptr<FitResult> result{Convert(std::move(data_source), "json", 0, 0, kDataTypesorder, false)};
     benchmark::DoNotOptimize(result);
   }
 }
@@ -72,13 +83,14 @@ static void BM_JsonExport(benchmark::State& state) {
 static void BM_FitOnlyExport(benchmark::State& state) {
   for (auto _ : state) {
     auto data_source = std::make_unique<DataSourceMemory>(fit_file.data(), fit_file.size());
-    const std::unique_ptr<FitResult> result{Convert(std::move(data_source), "none", 0, 0, 0xFFFFFF, false)};
+    const std::unique_ptr<FitResult> result{Convert(std::move(data_source), "none", 0, 0, kDataTypesorder, false)};
     benchmark::DoNotOptimize(result);
   }
 }
 
 BENCHMARK(BM_JsonExport);
 BENCHMARK(BM_VttExpor);
+BENCHMARK(BM_VttExporFmt);
 BENCHMARK(BM_FitOnlyExport);
 
 // Run the benchmark

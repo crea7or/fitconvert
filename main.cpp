@@ -46,7 +46,7 @@ constexpr const char kBanner[] = R"%(
   :CEZEONCEZEOd/.ydCEZEOCEZEOdo.sNCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOEZNEZEZN+
    `+dCEZEOEZEZdoCEZEOCEZEOEZ#N+CEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOCEZEOEZ#s.
       .:+ooooo/` :+oooooooooo+. .+ooooooooooooooooooooooooooooooooooooo+/.
- C E Z E O  S O F T W A R E (c) 2025   FIT telemetry converter to VTT or JSON
+ C E Z E O  S O F T W A R E (c) 2026   FIT telemetry converter to VTT or JSON
 
 )%";
 
@@ -56,15 +56,16 @@ usage: fitconvert -i input_file -o output_file -t output_type -f offset -s N
 
 -i - path to .fit file to read data from
 -o - path to .vtt or .json file to write to
--t - export type: vtt or json
--f - offset in milliseconds to sync video and .fit data (optional)
+-t - export type: vtt or json (optional, default vtt)
+-m - offset in milliseconds to sync video and .fit data (optional)
 * if the offset is positive - 'offset' second of the data from .fit file will be displayed at the first second of the video.
     it is for situations when you started video after starting recording your activity(that generated .fit file)
 * if the offset is negative - the first second of .fit data will be displayed at abs('offset') second of the video
     it is for situations when you started your activity (that generated .fit file) after starting the video
 -s - smooth values by inserting N (0-5) smoothed values between timestamps (optional)
 -v - values format: metric or imperial (optional, default metric)
--d - data to process, enumerate delimited by comma (default all): speed,distance,heartrate,altitude,power,cadence,temperature
+-d - data to process (others to ignore), enumerate delimited by comma (default process all): speed,distance,heartrate,altitude,power,cadence,temperature,gradient
+-f - output format string (optional for vtt format, defines positions and values format in the resulting string) 
 )%";
 
 int main(int argc, char* argv[]) {
@@ -75,11 +76,12 @@ int main(int argc, char* argv[]) {
         ("i,input", "", cxxopts::value<std::string>())                                        //
         ("o,output", "", cxxopts::value<std::string>())                                       //
         ("h,help", "")                                                                        //
-        ("d,data", "", cxxopts::value<std::string>()->default_value(""))                      //
+        ("d,data", "", cxxopts::value<std::string>()->default_value("speed,distance,heartrate,power,cadence,temperature,gradient,altitude"))  //
         ("t,type", "", cxxopts::value<std::string>()->default_value(kOutputVttTag.data()))    //
-        ("f,offset", "", cxxopts::value<int64_t>()->default_value("0"))                         //
+        ("m,offset", "", cxxopts::value<int64_t>()->default_value("0"))                       //
         ("v,values", "", cxxopts::value<std::string>()->default_value(kValuesMetric.data()))  //
-        ("s,smooth", "", cxxopts::value<uint8_t>()->default_value("0"));                        //
+        ("s,smooth", "", cxxopts::value<uint8_t>()->default_value("0"))                       //
+        ("f,format", "", cxxopts::value<std::string>()->default_value(""));                   //
     const auto cmd_result = cmd_options.parse(argc, argv);
 
     if (argc < 2 || cmd_result.count("help") > 0 || cmd_result.count("input") == 0 || cmd_result.count("output") == 0) {
@@ -94,6 +96,7 @@ int main(int argc, char* argv[]) {
     const uint8_t smoothness(cmd_result["smooth"].as<uint8_t>());
     const std::string datatypes(cmd_result["data"].as<std::string>());
     const std::string values(cmd_result["values"].as<std::string>());
+    const std::string format(cmd_result["format"].as<std::string>());
 
     if (output_file == kStdoutTag) {
       // disable informative output for cou output
@@ -120,11 +123,6 @@ int main(int argc, char* argv[]) {
       return kToolError;
     }
 
-    uint32_t datatypes_mask = DataTypeNamesToMask(datatypes);
-    if (0 == datatypes_mask) {
-      datatypes_mask = std::numeric_limits<uint32_t>::max();
-    }
-
     if (smoothness > 5) {
       SPDLOG_ERROR("smoothness can not be more than 5");
       return kToolError;
@@ -139,7 +137,7 @@ int main(int argc, char* argv[]) {
     }
 
     const std::unique_ptr<FitResult> result =
-        Convert(std::move(data_source), output_type, offset, smoothness, datatypes_mask, values == kValuesImperial);
+        Convert(std::move(data_source), output_type, offset, smoothness, datatypes, values == kValuesImperial, format);
     if (result->first == ParseResult::kSuccess) {
       if (kStdoutTag == output_file) {
         std::cout.write(result->second.GetString(), result->second.GetSize());

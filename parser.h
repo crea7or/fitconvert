@@ -65,12 +65,10 @@ inline constexpr std::string_view kOutputVttTag = "vtt";
 inline constexpr std::string_view kValuesMetric = "metric";
 inline constexpr std::string_view kValuesImperial = "imperial";
 
-// convert datatypes divided by comma to datatypes mask, 0 - means error
-uint32_t DataTypeNamesToMask(std::string_view name);
-
 std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
                                    const std::string_view output_type,
                                    const int64_t offset,
                                    const uint8_t smoothness,
-                                   const uint32_t datatypes,
-                                   const bool imperial);
+                                   const std::string_view data_types_order,
+                                   const bool imperial,
+                                   const std::string& format = {});

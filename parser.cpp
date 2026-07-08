@@ -2,7 +2,7 @@
 
  MIT License
 
- Copyright (c) 2025 pavel.sokolov@gmail.com / CEZEO software Ltd. All rights reserved.
+ Copyright (c) 2026 pavel.sokolov@gmail.com / CEZEO software Ltd. All rights reserved.
 
  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
@@ -21,7 +21,9 @@
 
 #include "parser.h"
 
+#include <fmt/args.h>
 #include <fmt/core.h>
+#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
 #include <array>
@@ -32,11 +34,110 @@
 #include <iostream>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 #include "datasource.h"
 #include "fitsdk/fit_convert.h"
 
 namespace {
+
+enum DataType : uint32_t {
+  // always should be zero
+  kTypeFirst = 0,
+  kTypeSpeed = 0,
+  kTypeDistance = 1,
+  kTypeHeartRate = 2,
+  kTypeAltitude = 3,
+  kTypePower = 4,
+  kTypeCadence = 5,
+  kTypeTemperature = 6,
+  kTypeTimeStamp = 7,
+  kTypeLatitude = 8,
+  kTypeLongitude = 9,
+  kTypeTimeStampNext = 10,
+  kTypeGradient = 11,
+  // always should be at the end
+  kTypeMax,
+};
+
+constexpr std::string_view kParamSpeed("speed");
+constexpr std::string_view kParamDistance("distance");
+constexpr std::string_view kParamHeartrate("heartrate");
+constexpr std::string_view kParamAltitude("altitude");
+constexpr std::string_view kParamPower("power");
+constexpr std::string_view kParamCadence("cadence");
+constexpr std::string_view kParamTemperature("temperature");
+constexpr std::string_view kParamTimestamp("timestamp");
+constexpr std::string_view kParamLatitude("latitude");
+constexpr std::string_view kParamLongitude("longitude");
+constexpr std::string_view kParamTimestampnext("timestampnext");
+constexpr std::string_view kParamGradient("gradient");
+
+constexpr uint32_t DataTypeToMask(const DataType type) {
+  return 0x01 << static_cast<uint32_t>(type);
+};
+
+constexpr std::array<uint32_t, DataType::kTypeMax> kDataTypeMasks = {
+    DataTypeToMask(kTypeSpeed),          // kTypeSpeed
+    DataTypeToMask(kTypeDistance),       // kTypeDistance
+    DataTypeToMask(kTypeHeartRate),      // kTypeHeartRate
+    DataTypeToMask(kTypeAltitude),       // kTypeAltitude
+    DataTypeToMask(kTypePower),          // kTypePower
+    DataTypeToMask(kTypeCadence),        // kTypeCadence
+    DataTypeToMask(kTypeTemperature),    // kTypeTemperature
+    DataTypeToMask(kTypeTimeStamp),      // kTypeTimeStamp
+    DataTypeToMask(kTypeLatitude),       // kTypeLatitude
+    DataTypeToMask(kTypeLongitude),      // kTypeLongitude
+    DataTypeToMask(kTypeTimeStampNext),  // kTypeTimeStampNext
+    DataTypeToMask(kTypeGradient)        // kTypeGradient
+};
+
+constexpr std::array<std::pair<std::string_view, std::string_view>, DataType::kTypeMax> kDataTypes = {
+    {{kParamSpeed, "s"},          // kTypeSpeed
+     {kParamDistance, "d"},       // kTypeDistance
+     {kParamHeartrate, "h"},      // kTypeHeartRate
+     {kParamAltitude, "a"},       // kTypeAltitude
+     {kParamPower, "p"},          // kTypePower
+     {kParamCadence, "c"},        // kTypeCadence
+     {kParamTemperature, "t"},    // kTypeTemperature
+     {kParamTimestamp, "f"},      // kTypeTimeStamp
+     {kParamLatitude, "u"},       // kTypeLatitude
+     {kParamLongitude, "o"},      // kTypeLongitude
+     {kParamTimestampnext, "n"},  // kTypeTimeStampNext
+     {kParamGradient, "g"}}       // kTypeGradient
+};
+
+using FormatData = std::array<std::pair<std::string_view, size_t>, DataType::kTypeMax>;
+
+constexpr FormatData kMetricFormat = {
+    {{" ㎞/h ", 5},  // kTypeSpeed km/h
+     {" ㎞ ", 6},    // kTypeDistance km
+     {"❤️ ", 4},      // kTypeHeartRate bpm
+     {" m↑ ", 5},    // kTypeAltitude meters
+     {"⚡ ", 5},     // kTypePower watt
+     {" ↻ ", 4},     // kTypeCadence rotations rpm
+     {"°C ", 3},     // kTypeTemperature celsius
+     {"", 0},        // kTypeTimeStamp
+     {"", 0},        // kTypeLatitude
+     {"", 0},        // kTypeLongitude
+     {"", 0},        // kTypeTimeStampNext
+     {"﹪", 5}}      // kTypeGradient
+};
+
+constexpr FormatData kImperialFormat = {
+    {{" mp/h ", 5},  // kTypeSpeed km/h
+     {" mi ", 6},    // kTypeDistance km
+     {"❤️ ", 4},      // kTypeHeartRate bpm
+     {" ft↑ ", 5},   // kTypeAltitude meters
+     {"⚡ ", 5},     // kTypePower watt
+     {" ↻ ", 4},     // kTypeCadence rotations rpm
+     {"°F ", 3},     // kTypeTemperature celsius
+     {"", 0},        // kTypeTimeStamp
+     {"", 0},        // kTypeLatitude
+     {"", 0},        // kTypeLongitude
+     {"", 0},        // kTypeTimeStampNext
+     {"﹪", 5}}      // kTypeGradient
+};
 
 constexpr std::string_view kVttHeaderTag("WEBVTT\n\n");
 constexpr std::string_view kVttTimeSeparator(" --> ");
@@ -44,6 +145,63 @@ constexpr std::string_view kVttOffsetMessage("\n< .fit data is not yet available
 constexpr std::string_view kVttEndMessage("\n< no more .fit data >");
 constexpr std::string_view kVttMessage("\nmade with ❤️ by fitconvert\n\n");
 
+// Slice string with one delimiter char(wchar...)
+template <typename InputIterator, typename UnaryFunction>
+void each_slice(InputIterator begin, InputIterator end, typename InputIterator::value_type delimiter, const UnaryFunction& function) {
+  InputIterator first = begin, current = begin;
+  for (; begin != end; ++begin) {
+    if (*begin == delimiter) {
+      if (first != current) {
+        function(std::basic_string_view<typename InputIterator::value_type>(first, current));
+      }
+      first = ++current;
+    } else {
+      ++current;
+    }
+  }
+  if (first != current) {
+    function(std::basic_string_view<typename InputIterator::value_type>(first, current));
+  }
+}
+
+
+DataType NameToDataType(std::string_view name) {
+  for (auto i = 0u; i < kDataTypes.size(); i++) {
+    if (kDataTypes[i].first == name) {
+      return static_cast<DataType>(i);
+    }
+  }
+  return DataType::kTypeMax;
+};
+
+// names line delimited by commas
+uint32_t DataTypeNamesToMask(std::string_view names) {
+  uint32_t types_mask = 0u;
+  each_slice(names.begin(), names.end(), ',', [&types_mask](const std::string_view datatype) {
+    const auto dt = NameToDataType(datatype);
+    if (dt != DataType::kTypeMax) {
+      types_mask |= DataTypeToMask(dt);
+    } else {
+      SPDLOG_ERROR("param name is not supported: {}", datatype);
+    }
+  });
+  return types_mask;
+}
+
+// names line delimited by commas
+std::vector<size_t> DataTypeNamesToIndexes(std::string_view names) {
+  std::vector<size_t> indexes;
+  indexes.reserve(kTypeMax);
+  each_slice(names.begin(), names.end(), ',', [&indexes](const std::string_view datatype) {
+    const auto dt = NameToDataType(datatype);
+    if (dt != DataType::kTypeMax) {
+      indexes.push_back(dt);
+    } else {
+      SPDLOG_ERROR("param name is not supported: {}", datatype);
+    }
+  });
+  return indexes;
+}
 
 class GradientCalculator {
  public:
@@ -99,6 +257,76 @@ class GradientCalculator {
   std::vector<RawPoint> buffer;
   size_t current_head{0};
   size_t current_count{0};
+};
+
+class CustomFormater final {
+ public:
+  explicit CustomFormater(const std::string_view format_string, const std::string_view data_types_order, bool imperial)
+      : imperial_(imperial) {
+    if (format_string.size() > 0) {
+      // {speed:5.1f} km/h;{distance:5.1f} km;{heartrate:3} bpm;{altitude:4} m;{power:4} W;{temperature:3}C;{cadence:3} rpm;{gradient:2.1f}%
+      each_slice(format_string.begin(), format_string.end(), ';', [this](const std::string_view format) {
+        // SPDLOG_ERROR("format found: {}", format);
+        ApplyFormat(format);
+      });
+    } else {
+      data_types_array_ = DataTypeNamesToIndexes(data_types_order);
+    }
+    collect_data_types_ = DataTypeNamesToMask(data_types_order);
+    if (0 == collect_data_types_) {
+      collect_data_types_ = std::numeric_limits<uint32_t>::max();
+    }
+
+    // SPDLOG_ERROR("dataypes: {}, mask: {}", data_types_array_.size(), collect_data_types_);
+  }
+
+  void ApplyFormat(const std::string_view format) {
+    if (format.size() < 1) {  // {tag required
+      return;
+    }
+    if (format[0] != '{') {
+      return;
+    }
+    const std::string_view tag = format.substr(1);  // skip '{'
+    for (size_t type_index = kTypeFirst; type_index < kTypeMax; type_index++) {
+      const auto& param_pair = kDataTypes[type_index];
+      if (tag.starts_with(param_pair.first)) {
+        formats_[type_index] = ExtractFormat(tag, param_pair.first);
+        const auto dt = NameToDataType(param_pair.first);
+        if (dt != DataType::kTypeMax) {
+          data_types_array_.push_back(dt);
+        }
+      }
+    }
+  }
+
+  const uint32_t GetDataTypesMask() const { return collect_data_types_; }
+  size_t FieldsInitialized() const { return fileds_; }
+  bool IsImperial() const { return imperial_; }
+  const std::vector<size_t>& GetDataTypeIndexes() const { return data_types_array_; }
+
+  const std::string_view GetFormat(const size_t index) const {
+    if (index < kTypeMax) {
+      return formats_[index];
+    }
+    return {};
+  }
+
+ private:
+  uint32_t collect_data_types_{0};
+  bool imperial_{false};
+  std::vector<size_t> data_types_array_;
+  std::string formats_[kTypeMax];
+
+  std::string ExtractFormat(const std::string_view tag, const std::string_view param) {
+    std::string result{"{"};
+    result.append(&tag[param.size()], tag.size() - param.size());
+    fileds_++;
+    // SPDLOG_ERROR("custom format parsing, param: {}, format: {}", param, result);
+    return result;
+  }
+
+  size_t fileds_{0};
 };
 
 // adapter for fmt::format_to to write directly into a RapidJSON StringBuffer
@@ -164,90 +392,10 @@ class OutputBuffer final : public rapidjson::StringBuffer {
   size_t size() const noexcept { return GetSize(); }
 };
 
-enum DataType : uint32_t {
-  // always should be zero
-  kTypeFirst = 0,
-  kTypeSpeed = 0,
-  kTypeDistance = 1,
-  kTypeHeartRate = 2,
-  kTypeAltitude = 3,
-  kTypePower = 4,
-  kTypeCadence = 5,
-  kTypeTemperature = 6,
-  kTypeTimeStamp = 7,
-  kTypeLatitude = 8,
-  kTypeLongitude = 9,
-  kTypeTimeStampNext = 10,
-  kTypeGradient = 11,
-  // always should be at the end
-  kTypeMax,
-};
-
-constexpr uint32_t DataTypeToMask(const DataType type) {
-  return 0x01 << static_cast<uint32_t>(type);
-};
-
-constexpr std::array<uint32_t, DataType::kTypeMax> kDataTypeMasks = {
-    DataTypeToMask(kTypeSpeed),          // kTypeSpeed
-    DataTypeToMask(kTypeDistance),       // kTypeDistance
-    DataTypeToMask(kTypeHeartRate),      // kTypeHeartRate
-    DataTypeToMask(kTypeAltitude),       // kTypeAltitude
-    DataTypeToMask(kTypePower),          // kTypePower
-    DataTypeToMask(kTypeCadence),        // kTypeCadence
-    DataTypeToMask(kTypeTemperature),    // kTypeTemperature
-    DataTypeToMask(kTypeTimeStamp),      // kTypeTimeStamp
-    DataTypeToMask(kTypeLatitude),       // kTypeLatitude
-    DataTypeToMask(kTypeLongitude),      // kTypeLongitude
-    DataTypeToMask(kTypeTimeStampNext),  // kTypeTimeStampNext
-    DataTypeToMask(kTypeGradient)        // kTypeGradient
-};
-
-constexpr std::array<std::pair<std::string_view, std::string_view>, DataType::kTypeMax> kDataTypes = {
-    {{"speed", "s"},          // kTypeSpeed
-     {"distance", "d"},       // kTypeDistance
-     {"heartrate", "h"},      // kTypeHeartRate
-     {"altitude", "a"},       // kTypeAltitude
-     {"power", "p"},          // kTypePower
-     {"cadence", "c"},        // kTypeCadence
-     {"temperature", "t"},    // kTypeTemperature
-     {"timestamp", "f"},      // kTypeTimeStamp
-     {"latitude", "u"},       // kTypeLatitude
-     {"longitude", "o"},      // kTypeLongitude
-     {"timestampnext", "n"},  // kTypeTimeStampNext
-     {"gradient", "g"}}       // kTypeGradient
-};
-
-using FormatData = std::array<std::pair<std::string_view, size_t>, DataType::kTypeMax>;
-
-constexpr FormatData kMetricFormat = {
-    {{" km/h ", 5},  // kTypeSpeed km/h
-     {" km ", 6},    // kTypeDistance km
-     {"❤️ ", 4},      // kTypeHeartRate bpm
-     {" m↑", 5},     // kTypeAltitude meters
-     {"⚡ ", 5},     // kTypePower watt
-     {" ↻ ", 4},     // kTypeCadence rotations rpm
-     {"°C ", 3},     // kTypeTemperature celsius
-     {"", 0},        // kTypeTimeStamp
-     {"", 0},        // kTypeLatitude
-     {"", 0},        // kTypeLongitude
-     {"", 0},        // kTypeTimeStampNext
-     {" %", 6}}      // kTypeGradient
-};
-
-constexpr FormatData kImperialFormat = {
-    {{" mp/h ", 5},  // kTypeSpeed km/h
-     {" mi ", 6},    // kTypeDistance km
-     {"❤️ ", 4},      // kTypeHeartRate bpm
-     {" ft↑", 5},    // kTypeAltitude meters
-     {"⚡ ", 5},     // kTypePower watt
-     {" ↻ ", 4},     // kTypeCadence rotations rpm
-     {"°F ", 3},     // kTypeTemperature celsius
-     {"", 0},        // kTypeTimeStamp
-     {"", 0},        // kTypeLatitude
-     {"", 0},        // kTypeLongitude
-     {"", 0},        // kTypeTimeStampNext
-     {" %", 6}}      // kTypeGradient
-};
+constexpr std::string_view kFmtMetricFormat{
+    "{speed:5.1f} ㎞/h;{distance:5.1f} ㎞;{heartrate:3}❤️;{altitude:4}m;{power:4}⚡;{temperature:3.1f}°C;{cadence:3}↻;{grade:2.1f}﹪"};
+constexpr std::string_view kFmtImperialFormat{
+    "{speed:5.1f} mp/h;{distance:5.1f} mi;{heartrate:3}❤️;{altitude:4}m;{power:4}⚡;{temperature:3.1f}°F;{cadence:3}↻;{grade:2.1f}﹪"};
 
 struct Time {
   Time(const int64_t milliseconds_total) {
@@ -267,15 +415,6 @@ struct Time {
   uint16_t hours{0};
   uint8_t minutes{0};
   uint8_t seconds{0};
-};
-
-DataType NameToDataType(std::string_view name) {
-  for (auto i = 0u; i < kDataTypes.size(); i++) {
-    if (kDataTypes[i].first == name) {
-      return static_cast<DataType>(i);
-    }
-  }
-  return DataType::kTypeMax;
 };
 
 template <typename T>
@@ -305,17 +444,6 @@ size_t format_value_suffix(T value,                        //
 
   size_t length = static_cast<size_t>(formatted_ptr - buffer_ptr);
 
-  /*
-  * // pad to total width (spaces on right)
-  if (length < total_width) {
-    size_t pad = total_width - length;
-    if (length + pad >= buffer_size)
-      pad = buffer_size - length - 1;
-    std::memset(formatted_ptr, ' ', pad);
-    formatted_ptr += pad;
-    length += pad;
-  }
-  */
   // pad to total width (spaces on left)
   const size_t pad = total_width > length ? total_width - length : 0;
   if (pad > 0u) {
@@ -381,7 +509,84 @@ size_t format_timestamp(char* buffer_ptr, const size_t buffer_size, const Time& 
   return static_cast<size_t>(ptr - buffer_ptr);
 }
 
-struct FitData {
+// Return Value
+using ProcessedValue = std::variant<int64_t, double>;
+// Convert Functions
+using ParamProcessor = ProcessedValue (*)(int64_t, bool);
+
+constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kProcessors = {
+    // kTypeSpeed
+    {
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
+           return static_cast<double>(raw) / (imperial ? 447.2136 : 277.77);
+         },
+         1},  // kTypeSpeed
+        // kTypeDistance
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           return static_cast<double>(raw) / (imperial ? 160934.4 : 100000.0);
+         },
+         2},  // kTypeDistance
+        // kTypeHeartRate
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           // FIT_UINT8 heart_rate = bpm
+           return raw;
+         },
+         0},  // kTypeHeartRate
+        // kTypeAltitude
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           // FIT_UINT32 enhanced_altitude = 5 * m + 500
+           const int64_t altitude_meters = (raw / 5) - 500;
+           return imperial ? (altitude_meters * 3.28084) : altitude_meters;
+         },
+         0},  // kTypeAltitude
+        // kTypePower
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           // FIT_UINT16 power = watts
+           return raw;
+         },
+         0},  // kTypePower
+        // kTypeCadence
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           // FIT_UINT8 cadence = rpm
+           return raw;
+         },
+         0},  // kTypeCadence
+        // kTypeTemperature
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           // FIT_SINT8 temperature = C
+           return imperial ? (raw * 9 / 5 + 32) : raw;
+         },
+         0},  // kTypeTemperature
+        // kTypeTimeStamp
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           return raw;
+         },
+         0},  // kTypeTimeStamp
+        // kTypeLatitude
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           return raw;
+         },
+         0},  // kTypeLatitude
+        // kTypeLongitude
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           return raw;
+         },
+         0},  // kTypeLongitude
+        // kTypeTimeStampNext
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           return raw;
+         },
+         0},  // kTypeTimeStampNext
+        // kTypeGradient
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           // FIT_SINT16 grade = 100 * % + 0
+           return static_cast<double>(raw) / 100.0;
+         },
+         1}  // kTypeGradient
+    }};
+
+struct FitData final {
   FitData() {
     memset(values, 0, sizeof(values));
     static_assert(FIT_UINT32_INVALID == std::numeric_limits<FIT_UINT32>::max());
@@ -428,7 +633,7 @@ struct FitData {
     ApplyValue(DataType::kTypeGradient, fit_record_ptr->grade, collect_data_types);
   }
 
-  void ExportToJson(rapidjson::Writer<rapidjson::StringBuffer>& writer, const bool imperial) {
+  void ExportToJson(rapidjson::Writer<rapidjson::StringBuffer>& writer, const CustomFormater& formatter) {
     writer.StartObject();
 
     if (ExportToJsonCheck(writer, DataType::kTypeTimeStamp)) {
@@ -441,7 +646,7 @@ struct FitData {
 
     if (ExportToJsonCheck(writer, DataType::kTypeDistance)) {
       // FIT_UINT32 distance = 100 * m = cm
-      const double distance = static_cast<double>(values[DataType::kTypeDistance]) / (imperial ? 160934.4 : 100000.0);
+      const double distance = static_cast<double>(values[DataType::kTypeDistance]) / (formatter.IsImperial() ? 160934.4 : 100000.0);
       writer.Double(distance);
     }
 
@@ -463,19 +668,21 @@ struct FitData {
     if (ExportToJsonCheck(writer, DataType::kTypeAltitude)) {
       // FIT_UINT32 enhanced_altitude = 5 * m + 500
       const int64_t altitude_meters = (values[DataType::kTypeAltitude] / 5) - 500;
-      const int64_t altitude = (imperial ? static_cast<int64_t>((static_cast<double>(altitude_meters) * 3.28084)) : altitude_meters);
+      const int64_t altitude =
+          (formatter.IsImperial() ? static_cast<int64_t>((static_cast<double>(altitude_meters) * 3.28084)) : altitude_meters);
       writer.Int(altitude);
     }
 
     if (ExportToJsonCheck(writer, DataType::kTypeSpeed)) {
       // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
-      const double speed = static_cast<double>(values[DataType::kTypeSpeed]) / (imperial ? 447.2136 : 277.77);
+      const double speed = static_cast<double>(values[DataType::kTypeSpeed]) / (formatter.IsImperial() ? 447.2136 : 277.77);
       writer.Double(speed);
     }
 
     if (ExportToJsonCheck(writer, DataType::kTypeTemperature)) {
       // FIT_SINT8 temperature = C
-      const int64_t temperature = imperial ? (values[DataType::kTypeTemperature] * 9 / 5 + 32) : values[DataType::kTypeTemperature];
+      const int64_t temperature =
+          formatter.IsImperial() ? (values[DataType::kTypeTemperature] * 9 / 5 + 32) : values[DataType::kTypeTemperature];
       writer.Int(temperature);
     }
 
@@ -499,10 +706,10 @@ struct FitData {
     writer.EndObject();
   }
 
-  void ExportToVtt(OutputBuffer& writer, const bool imperial) {
+  void ExportToVtt(OutputBuffer& writer, const CustomFormater& formatter) {
     const Time time_from(values[DataType::kTypeTimeStamp]);
     const Time time_to(values[DataType::kTypeTimeStampNext]);
-    const FormatData& format = imperial ? kImperialFormat : kMetricFormat;
+    const FormatData& format = formatter.IsImperial() ? kImperialFormat : kMetricFormat;
     std::array<char, 32u> formatting_buffer;
     {
       const size_t size = format_timestamp(formatting_buffer.data(), formatting_buffer.size(), time_from);
@@ -515,97 +722,60 @@ struct FitData {
     }
     writer.NewLine();
 
-    if (available_types & kDataTypeMasks[DataType::kTypeSpeed]) {
-      // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
-      const size_t size = format_value_suffix(static_cast<double>(values[DataType::kTypeSpeed]) / (imperial ? 447.2136 : 277.77),
-                                              formatting_buffer.data(),
-                                              formatting_buffer.size(),
-                                              format[DataType::kTypeSpeed].second,
-                                              format[DataType::kTypeSpeed].first,
-                                              1);
+    for (const auto type_index : formatter.GetDataTypeIndexes()) {
+      if (!(available_types & kDataTypeMasks[type_index])) {
+        continue;
+      }
 
-      writer.AppendString(formatting_buffer.data(), size);
+      ProcessedValue cooked_value = kProcessors[type_index].first(values[type_index], formatter.IsImperial());
+
+      std::visit(
+          [&](auto&& arg) {
+            const size_t size = format_value_suffix(arg,
+                                                    formatting_buffer.data(),
+                                                    formatting_buffer.size(),
+                                                    format[type_index].second,
+                                                    format[type_index].first,
+                                                    kProcessors[type_index].second);
+            writer.AppendString(formatting_buffer.data(), size);
+          },
+          cooked_value);
     }
 
-    if (available_types & kDataTypeMasks[DataType::kTypeDistance]) {
-      const size_t size = format_value_suffix(static_cast<double>(values[DataType::kTypeDistance]) / (imperial ? 160934.4 : 100000.0),
-                                              formatting_buffer.data(),
-                                              formatting_buffer.size(),
-                                              format[DataType::kTypeDistance].second,
-                                              format[DataType::kTypeDistance].first,
-                                              2);
+    writer.NewLine();
+    writer.NewLine();
+  }
 
+  void ExportToVttFmt(OutputBuffer& writer, const CustomFormater& formatter) {
+    const Time time_from(values[DataType::kTypeTimeStamp]);
+    const Time time_to(values[DataType::kTypeTimeStampNext]);
+
+    std::array<char, 32u> formatting_buffer;
+    {
+      const size_t size = format_timestamp(formatting_buffer.data(), formatting_buffer.size(), time_from);
       writer.AppendString(formatting_buffer.data(), size);
     }
-
-    if (available_types & kDataTypeMasks[DataType::kTypeHeartRate]) {
-      // FIT_UINT8 heart_rate = bpm{
-      const size_t size = format_value_suffix(values[DataType::kTypeHeartRate],
-                                              formatting_buffer.data(),
-                                              formatting_buffer.size(),
-                                              format[DataType::kTypeHeartRate].second,
-                                              format[DataType::kTypeHeartRate].first);
-
+    writer.AppendString(kVttTimeSeparator);
+    {
+      const size_t size = format_timestamp(formatting_buffer.data(), formatting_buffer.size(), time_to);
       writer.AppendString(formatting_buffer.data(), size);
     }
+    writer.NewLine();
 
-    if (available_types & kDataTypeMasks[DataType::kTypeCadence]) {
-      // FIT_UINT8 cadence = rpm
-      const size_t size = format_value_suffix(values[DataType::kTypeCadence],
-                                              formatting_buffer.data(),
-                                              formatting_buffer.size(),
-                                              format[DataType::kTypeCadence].second,
-                                              format[DataType::kTypeCadence].first);
+    for (const auto type_index : formatter.GetDataTypeIndexes()) {
+      if (!(available_types & kDataTypeMasks[type_index])) {
+        continue;
+      }
 
-      writer.AppendString(formatting_buffer.data(), size);
-    }
+      ProcessedValue cooked_value = kProcessors[type_index].first(values[type_index], formatter.IsImperial());
+      const std::string_view active_format = formatter.GetFormat(type_index);
 
-    if (available_types & kDataTypeMasks[DataType::kTypePower]) {
-      // FIT_UINT16 power = watts
-      const size_t size = format_value_suffix(values[DataType::kTypePower],
-                                              formatting_buffer.data(),
-                                              formatting_buffer.size(),
-                                              format[DataType::kTypePower].second,
-                                              format[DataType::kTypePower].first);
-
-      writer.AppendString(formatting_buffer.data(), size);
-    }
-
-    if (available_types & kDataTypeMasks[DataType::kTypeTemperature]) {
-      // FIT_SINT8 temperature = C
-      const int16_t temperature = imperial ? (values[DataType::kTypeTemperature] * 9 / 5 + 32) : values[DataType::kTypeTemperature];
-      const size_t size = format_value_suffix(temperature,
-                                              formatting_buffer.data(),
-                                              formatting_buffer.size(),
-                                              format[DataType::kTypeTemperature].second,
-                                              format[DataType::kTypeTemperature].first);
-
-      writer.AppendString(formatting_buffer.data(), size);
-    }
-
-    if (available_types & kDataTypeMasks[DataType::kTypeAltitude]) {
-      // FIT_UINT32 enhanced_altitude = 5 * m + 500
-      const int64_t altitude_meters = (values[DataType::kTypeAltitude] / 5) - 500;
-      const int64_t altitude = imperial ? (altitude_meters * 3.28084) : altitude_meters;
-      const size_t size = format_value_suffix(altitude,
-                                              formatting_buffer.data(),
-                                              formatting_buffer.size(),
-                                              format[DataType::kTypeAltitude].second,
-                                              format[DataType::kTypeAltitude].first);
-
-      writer.AppendString(formatting_buffer.data(), size);
-    }
-
-    if (available_types & kDataTypeMasks[DataType::kTypeGradient]) {
-      // FIT_SINT16 grade = 100 * % + 0
-      const size_t size = format_value_suffix(static_cast<double>(values[DataType::kTypeGradient]) / 100.0,
-                                              formatting_buffer.data(),
-                                              formatting_buffer.size(),
-                                              format[DataType::kTypeGradient].second,
-                                              format[DataType::kTypeGradient].first,
-                                              1);
-
-      writer.AppendString(formatting_buffer.data(), size);
+      std::visit(
+          [&](auto&& arg) {
+            auto result = fmt::format_to_n(formatting_buffer.data(), formatting_buffer.size(), fmt::runtime(active_format), arg);
+            writer.AppendString(formatting_buffer.data(), result.size);
+          },
+          cooked_value);
     }
 
     writer.NewLine();
@@ -670,41 +840,13 @@ struct FitData {
 
 }  // namespace
 
-// names line delimited by commas
-uint32_t DataTypeNamesToMask(std::string_view names) {
-  std::vector<std::string_view> types;
-  size_t start = 0u;
-  size_t end = 0u;
-
-  while ((end = names.find(",", start)) != std::string::npos) {
-    const std::string_view tag(names.substr(start, end - start));
-    if (tag.size() > 0u) {
-      types.emplace_back(tag);
-    }
-    start = end + 1u;
-  }
-  const std::string_view last_tag(names.substr(start, names.size()));
-  if (last_tag.size() > 0u) {
-    types.emplace_back(last_tag);  // last token
-  }
-
-  uint32_t types_mask = 0u;
-  for (auto type : types) {
-    const auto dt = NameToDataType(type);
-    if (dt != DataType::kTypeMax) {
-      types_mask |= DataTypeToMask(dt);
-    }
-  }
-
-  return types_mask;
-}
-
 std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
                                    const std::string_view output_type,
                                    const int64_t offset,
                                    const uint8_t smoothness,
-                                   const uint32_t collect_data_types,
-                                   const bool imperial) {
+                                   const std::string_view data_types_order,
+                                   const bool imperial,
+                                   const std::string& format) {
   auto result = std::make_unique<FitResult>();
   result->first = ParseResult::kError;
 
@@ -724,6 +866,7 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
   Buffer data_buffer(4096u * 16u);
 
   GradientCalculator gradient;
+  CustomFormater formatter(format, data_types_order, imperial);
 
   OutputBuffer write_buffer;
   // start json creation
@@ -740,17 +883,21 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
   }
 
   // make exporter
-  auto MakeExporter = [](auto& write_buffer, auto& writer, auto& vtt_output, auto& json_output, auto& imperial) {
+  auto MakeExporter = [](auto& write_buffer, auto& writer, auto& vtt_output, auto& json_output, const CustomFormater& formatter) {
     return [&](auto&& x) noexcept -> void {
       if (json_output) {
-        x->ExportToJson(writer, imperial);
+        x->ExportToJson(writer, formatter);
       } else if (vtt_output) {
-        x->ExportToVtt(write_buffer, imperial);
+        if (formatter.FieldsInitialized() > 0) {
+          x->ExportToVttFmt(write_buffer, formatter);
+        } else {
+          x->ExportToVtt(write_buffer, formatter);
+        }
       }
     };
   };
-  auto Export = MakeExporter(write_buffer, writer, vtt_output, json_output, imperial);
 
+  auto Export = MakeExporter(write_buffer, writer, vtt_output, json_output, formatter);
 
   FitData new_fit_data;
   FitData previous_fit_data;
@@ -817,7 +964,7 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
         fit_record_modifieable_ptr->grade = gradient.AddRawPoint(distance, altitude);
       }
 
-      new_fit_data_ptr->ApplyData(fit_record_ptr, collect_data_types);
+      new_fit_data_ptr->ApplyData(fit_record_ptr, formatter.GetDataTypesMask());
 
       // reset timestamp to video data (+offset), ONLY AFTER ApplyData!
       const int64_t new_fit_from_ms = (type_msec - first_fit_timestamp) + first_video_timestamp;
