@@ -528,7 +528,7 @@ constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kPro
          },
          2},  // kTypeDistance
         // kTypeHeartRate
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
+        {[](int64_t raw, bool) -> ProcessedValue {
            // FIT_UINT8 heart_rate = bpm
            return raw;
          },
@@ -541,13 +541,13 @@ constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kPro
          },
          0},  // kTypeAltitude
         // kTypePower
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
+        {[](int64_t raw, bool) -> ProcessedValue {
            // FIT_UINT16 power = watts
            return raw;
          },
          0},  // kTypePower
         // kTypeCadence
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
+        {[](int64_t raw, bool) -> ProcessedValue {
            // FIT_UINT8 cadence = rpm
            return raw;
          },
@@ -559,27 +559,29 @@ constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kPro
          },
          0},  // kTypeTemperature
         // kTypeTimeStamp
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
+        {[](int64_t raw, bool) -> ProcessedValue {
            return raw;
          },
          0},  // kTypeTimeStamp
         // kTypeLatitude
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
-           return raw;
+        {[](int64_t raw, bool) -> ProcessedValue {
+           // semicircles to degrees
+           return static_cast<double>(raw) * (180.0 / 2147483648.0);
          },
          0},  // kTypeLatitude
         // kTypeLongitude
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
-           return raw;
+        {[](int64_t raw, bool) -> ProcessedValue {
+           // semicircles to degrees
+           return static_cast<double>(raw) * (180.0 / 2147483648.0);
          },
          0},  // kTypeLongitude
         // kTypeTimeStampNext
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
+        {[](int64_t raw, bool) -> ProcessedValue {
            return raw;
          },
          0},  // kTypeTimeStampNext
         // kTypeGradient
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
+        {[](int64_t raw, bool) -> ProcessedValue {
            // FIT_SINT16 grade = 100 * % + 0
            return static_cast<double>(raw) / 100.0;
          },
@@ -636,72 +638,31 @@ struct FitData final {
   void ExportToJson(rapidjson::Writer<rapidjson::StringBuffer>& writer, const CustomFormater& formatter) {
     writer.StartObject();
 
-    if (ExportToJsonCheck(writer, DataType::kTypeTimeStamp)) {
-      writer.Int64(values[DataType::kTypeTimeStamp]);
-    }
+    for (const auto type_index : formatter.GetDataTypeIndexes()) {
+      if (!(available_types & kDataTypeMasks[type_index])) {
+        continue;
+      }
 
-    if (ExportToJsonCheck(writer, DataType::kTypeTimeStampNext)) {
-      writer.Int64(values[DataType::kTypeTimeStampNext]);
+      ProcessedValue cooked_value = kProcessors[type_index].first(values[type_index], formatter.IsImperial());
+      writer.Key(rapidjson::StringRef(kDataTypes[type_index].second.data(), kDataTypes[type_index].second.size()));
+      if ((kDataTypeMasks[kTypeLatitude] | kDataTypeMasks[kTypeLongitude]) & kDataTypeMasks[type_index]) {
+        writer.SetMaxDecimalPlaces(6);
+      } else {
+        writer.SetMaxDecimalPlaces(2);
+      }
+      std::visit(
+          [&](auto&& arg) {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, int64_t>) {
+              writer.Int64(arg);
+            } else if constexpr (std::is_same_v<T, uint64_t>) {
+              writer.Uint64(arg);
+            } else if constexpr (std::is_same_v<T, double>) {
+              writer.Double(arg);
+            }
+          },
+          cooked_value);
     }
-
-    if (ExportToJsonCheck(writer, DataType::kTypeDistance)) {
-      // FIT_UINT32 distance = 100 * m = cm
-      const double distance = static_cast<double>(values[DataType::kTypeDistance]) / (formatter.IsImperial() ? 160934.4 : 100000.0);
-      writer.Double(distance);
-    }
-
-    if (ExportToJsonCheck(writer, DataType::kTypeHeartRate)) {
-      // FIT_UINT8 heart_rate = bpm{
-      writer.Uint(values[DataType::kTypeHeartRate]);
-    }
-
-    if (ExportToJsonCheck(writer, DataType::kTypeCadence)) {
-      // FIT_UINT8 cadence = rpm
-      writer.Uint(values[DataType::kTypeCadence]);
-    }
-
-    if (ExportToJsonCheck(writer, DataType::kTypePower)) {
-      // FIT_UINT16 power = watts
-      writer.Uint(values[DataType::kTypePower]);
-    }
-
-    if (ExportToJsonCheck(writer, DataType::kTypeAltitude)) {
-      // FIT_UINT32 enhanced_altitude = 5 * m + 500
-      const int64_t altitude_meters = (values[DataType::kTypeAltitude] / 5) - 500;
-      const int64_t altitude =
-          (formatter.IsImperial() ? static_cast<int64_t>((static_cast<double>(altitude_meters) * 3.28084)) : altitude_meters);
-      writer.Int(altitude);
-    }
-
-    if (ExportToJsonCheck(writer, DataType::kTypeSpeed)) {
-      // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
-      const double speed = static_cast<double>(values[DataType::kTypeSpeed]) / (formatter.IsImperial() ? 447.2136 : 277.77);
-      writer.Double(speed);
-    }
-
-    if (ExportToJsonCheck(writer, DataType::kTypeTemperature)) {
-      // FIT_SINT8 temperature = C
-      const int64_t temperature =
-          formatter.IsImperial() ? (values[DataType::kTypeTemperature] * 9 / 5 + 32) : values[DataType::kTypeTemperature];
-      writer.Int(temperature);
-    }
-
-    if (ExportToJsonCheck(writer, DataType::kTypeGradient)) {
-      // FIT_SINT16 grade = 100 * % + 0
-      writer.Double(static_cast<double>(values[DataType::kTypeGradient]) / 100.0);
-    }
-
-    /*
-    if (ExportToJsonCheck(writer, DataType::kTypeLatitude)) {
-      // FIT_SINT32 position_lat = semicircles
-      writer.Int(values[DataType::kTypeLatitude]);
-    }
-
-    if (ExportToJsonCheck(writer, DataType::kTypeLongitude)) {
-      // FIT_SINT32 position_long = semicircles
-      writer.Int(values[DataType::kTypeLongitude]);
-    }
-    */
 
     writer.EndObject();
   }
@@ -827,14 +788,6 @@ struct FitData final {
       values[type] = value;
       available_types |= datatype_mask;
     }
-  }
-
-  bool ExportToJsonCheck(rapidjson::Writer<rapidjson::StringBuffer>& writer, DataType type) {
-    if (available_types & kDataTypeMasks[type]) {
-      writer.Key(rapidjson::StringRef(kDataTypes[type].second.data(), kDataTypes[type].second.size()));
-      return true;
-    }
-    return false;
   }
 };
 

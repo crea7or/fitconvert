@@ -64,7 +64,7 @@ usage: fitconvert -i input_file -o output_file -t output_type -f offset -s N
     it is for situations when you started your activity (that generated .fit file) after starting the video
 -s - smooth values by inserting N (0-5) smoothed values between timestamps (optional)
 -v - values format: metric or imperial (optional, default metric)
--d - data to process (others to ignore), enumerate delimited by comma (default process all): speed,distance,heartrate,altitude,power,cadence,temperature,gradient
+-d - data to process (others to ignore), enumerate delimited by comma (default process all): speed,distance,heartrate,altitude,power,cadence,temperature,gradient,latitude,longitude
 -f - output format string (optional for vtt format, defines positions and values format in the resulting string) 
 )%";
 
@@ -76,7 +76,7 @@ int main(int argc, char* argv[]) {
         ("i,input", "", cxxopts::value<std::string>())                                        //
         ("o,output", "", cxxopts::value<std::string>())                                       //
         ("h,help", "")                                                                        //
-        ("d,data", "", cxxopts::value<std::string>()->default_value("speed,distance,heartrate,power,cadence,temperature,gradient,altitude"))  //
+        ("d,data", "", cxxopts::value<std::string>()->default_value("speed,distance,heartrate,power,cadence,temperature,gradient,altitude,latitude,longitude"))  //
         ("t,type", "", cxxopts::value<std::string>()->default_value(kOutputVttTag.data()))    //
         ("m,offset", "", cxxopts::value<int64_t>()->default_value("0"))                       //
         ("v,values", "", cxxopts::value<std::string>()->default_value(kValuesMetric.data()))  //
