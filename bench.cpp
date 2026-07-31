@@ -34,7 +34,7 @@
 
 
 const std::string kFmtMetricFormat("{speed:5.1f} km/h;{distance:6.1f} km;{heartrate:4} bpm;{altitude:5} m;{power:5} w;{temperature:4} C;{cadence:4} rpm;{gradient:3.1f} %");
-const std::string_view kDataTypesorder("speed,distance,heartrate,power,cadence,temperature,gradient,altitude");
+const std::string_view kDataTypesorder("speed,distance,heartrate,power,cadence,temperature,gradient,altitude,latitude,longitude");
 
 std::vector<uint8_t> readFileToBuffer(const std::string& path) {
   std::ifstream file(path, std::ios::binary | std::ios::ate);

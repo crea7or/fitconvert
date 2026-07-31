@@ -22,12 +22,31 @@
 #include <spdlog/spdlog.h>
 
 #include <array>
+#include <cstring>
 
 #include "gtest/gtest.h"
 #include "parser.cpp"
 
 
 namespace {
+
+FIT_RECORD_MESG MakeRecord() {
+  FIT_RECORD_MESG record{};
+  record.timestamp = 123;
+  record.distance = FIT_UINT32_INVALID;
+  record.heart_rate = FIT_BYTE_INVALID;
+  record.cadence = FIT_BYTE_INVALID;
+  record.power = FIT_UINT16_INVALID;
+  record.altitude = FIT_UINT16_INVALID;
+  record.enhanced_altitude = FIT_UINT32_INVALID;
+  record.speed = FIT_UINT16_INVALID;
+  record.enhanced_speed = FIT_UINT32_INVALID;
+  record.temperature = FIT_SINT8_INVALID;
+  record.position_lat = FIT_SINT32_INVALID;
+  record.position_long = FIT_SINT32_INVALID;
+  record.grade = FIT_SINT16_INVALID;
+  return record;
+}
 
 TEST(ValuesFormatting, Positive) {
   std::array<char, 32> buffer;
@@ -85,6 +104,25 @@ TEST(ValuesFormatting, Positive) {
 
 TEST(ValuesFormatting, Negative) {
   { EXPECT_THROW(Time(1234567890), std::invalid_argument); }
+}
+
+TEST(ValuesFormatting, EdgeCases) {
+  std::array<char, 32> buffer;
+
+  {
+    const Time time(356400000);
+    EXPECT_EQ(time.hours, 99);
+    EXPECT_EQ(time.minutes, 0);
+    EXPECT_EQ(time.seconds, 0);
+    EXPECT_EQ(time.milliseconds, 0);
+    const size_t result = format_timestamp(buffer.data(), buffer.size(), time);
+    EXPECT_EQ(std::string_view("99:00:00.000"), std::string_view(buffer.data(), result));
+  }
+
+  {
+    const Time time(0);
+    EXPECT_EQ(format_timestamp(buffer.data(), 15, time), 0);
+  }
 }
 
 TEST(ValuesFormattingWithSuffix, Positive) {
@@ -154,6 +192,177 @@ TEST(ValuesFormattingWithSuffix, Positive) {
                                             0);
     EXPECT_EQ(std::string_view(buffer.data(), size), std::string_view("1234567 m "));
   }
+}
+
+TEST(ValuesFormattingWithSuffix, BufferTooSmall) {
+  std::array<char, 8> buffer;
+  EXPECT_EQ(format_value_suffix(12.3, buffer.data(), buffer.size(), 4, " km ", 1), 0);
+}
+
+TEST(DataTypes, NamesToMaskAndIndexes) {
+  const uint32_t mask = DataTypeNamesToMask("speed,invalid,distance,speed,timestampnext");
+  EXPECT_EQ(mask,
+            kDataTypeMasks[DataType::kTypeSpeed] | kDataTypeMasks[DataType::kTypeDistance] |
+                kDataTypeMasks[DataType::kTypeTimeStampNext]);
+
+  const auto indexes = DataTypeNamesToIndexes("temperature,invalid,power,speed");
+  ASSERT_EQ(indexes.size(), 3);
+  EXPECT_EQ(indexes[0], DataType::kTypeTemperature);
+  EXPECT_EQ(indexes[1], DataType::kTypePower);
+  EXPECT_EQ(indexes[2], DataType::kTypeSpeed);
+}
+
+TEST(DataTypes, NameToDataTypeMapsKnownAndUnknownNames) {
+  EXPECT_EQ(NameToDataType("speed"), DataType::kTypeSpeed);
+  EXPECT_EQ(NameToDataType("distance"), DataType::kTypeDistance);
+  EXPECT_EQ(NameToDataType("timestampnext"), DataType::kTypeTimeStampNext);
+  EXPECT_EQ(NameToDataType("unknown"), DataType::kTypeMax);
+}
+
+TEST(StringHelpers, EachSliceSkipsEmptySegments) {
+  std::vector<std::string> segments;
+  const std::string input = ",speed,,distance,";
+
+  each_slice(input.begin(), input.end(), ',', [&segments](std::string_view segment) { segments.emplace_back(segment); });
+
+  ASSERT_EQ(segments.size(), 2);
+  EXPECT_EQ(segments[0], "speed");
+  EXPECT_EQ(segments[1], "distance");
+}
+
+TEST(StringHelpers, EachSliceSupportsSingleSegmentWithoutDelimiter) {
+  std::vector<std::string> segments;
+  const std::string input = "temperature";
+
+  each_slice(input.begin(), input.end(), ',', [&segments](std::string_view segment) { segments.emplace_back(segment); });
+
+  ASSERT_EQ(segments.size(), 1);
+  EXPECT_EQ(segments[0], "temperature");
+}
+
+TEST(GradientCalculatorTests, CalculatesSlopeAndHandlesShortWindow) {
+  GradientCalculator gradient(5);
+  EXPECT_EQ(gradient.AddRawPoint(0, 0), 0);
+  EXPECT_EQ(gradient.AddRawPoint(100, 1), 0);
+  EXPECT_EQ(gradient.AddRawPoint(200, 2), 2000);
+  EXPECT_EQ(gradient.AddRawPoint(300, 3), 2000);
+}
+
+TEST(GradientCalculatorTests, ReturnsZeroWhenDistanceDoesNotChange) {
+  GradientCalculator gradient(5);
+  EXPECT_EQ(gradient.AddRawPoint(100, 10), 0);
+  EXPECT_EQ(gradient.AddRawPoint(100, 20), 0);
+  EXPECT_EQ(gradient.AddRawPoint(100, 30), 0);
+}
+
+TEST(CustomFormatterTests, UsesOrderWhenNoCustomFormatProvided) {
+  const CustomFormater formatter("", "speed,distance,temperature", false);
+
+  EXPECT_EQ(formatter.FieldsInitialized(), 0);
+  EXPECT_FALSE(formatter.IsImperial());
+  EXPECT_EQ(formatter.GetDataTypesMask(),
+            kDataTypeMasks[DataType::kTypeSpeed] | kDataTypeMasks[DataType::kTypeDistance] |
+                kDataTypeMasks[DataType::kTypeTemperature]);
+
+  const auto& indexes = formatter.GetDataTypeIndexes();
+  ASSERT_EQ(indexes.size(), 3);
+  EXPECT_EQ(indexes[0], DataType::kTypeSpeed);
+  EXPECT_EQ(indexes[1], DataType::kTypeDistance);
+  EXPECT_EQ(indexes[2], DataType::kTypeTemperature);
+}
+
+TEST(CustomFormatterTests, ParsesCustomFormatAndCollectMaskSeparately) {
+  const CustomFormater formatter("{speed:5.1f};{altitude:4};{temperature:3}", "speed,temperature", true);
+
+  EXPECT_EQ(formatter.FieldsInitialized(), 3);
+  EXPECT_TRUE(formatter.IsImperial());
+  EXPECT_EQ(formatter.GetDataTypesMask(), kDataTypeMasks[DataType::kTypeSpeed] | kDataTypeMasks[DataType::kTypeTemperature]);
+
+  const auto& indexes = formatter.GetDataTypeIndexes();
+  ASSERT_EQ(indexes.size(), 3);
+  EXPECT_EQ(indexes[0], DataType::kTypeSpeed);
+  EXPECT_EQ(indexes[1], DataType::kTypeAltitude);
+  EXPECT_EQ(indexes[2], DataType::kTypeTemperature);
+  EXPECT_EQ(formatter.GetFormat(DataType::kTypeSpeed), "{:5.1f}");
+  EXPECT_EQ(formatter.GetFormat(DataType::kTypeAltitude), "{:4}");
+  EXPECT_EQ(formatter.GetFormat(DataType::kTypeTemperature), "{:3}");
+}
+
+TEST(CustomFormatterTests, IgnoresInvalidFormatFragments) {
+  const CustomFormater formatter("speed:5.1f;{distance:4};;", "distance", false);
+
+  EXPECT_EQ(formatter.FieldsInitialized(), 1);
+  const auto& indexes = formatter.GetDataTypeIndexes();
+  ASSERT_EQ(indexes.size(), 1);
+  EXPECT_EQ(indexes[0], DataType::kTypeDistance);
+  EXPECT_EQ(formatter.GetFormat(DataType::kTypeDistance), "{:4}");
+}
+
+TEST(FitDataTests, ApplyDataPrefersEnhancedFieldsAndSkipsInvalidValues) {
+  auto record = MakeRecord();
+  record.distance = 12345;
+  record.speed = 1500;
+  record.enhanced_speed = 2500;
+  record.altitude = 750;
+  record.enhanced_altitude = 1750;
+  record.temperature = 24;
+  record.grade = 321;
+
+  FitData data(&record, std::numeric_limits<uint32_t>::max());
+
+  EXPECT_EQ(data.GetValue(DataType::kTypeTimeStamp), 123000);
+  EXPECT_EQ(data.GetValue(DataType::kTypeDistance), 12345);
+  EXPECT_EQ(data.GetValue(DataType::kTypeSpeed), 2500);
+  EXPECT_EQ(data.GetValue(DataType::kTypeAltitude), 1750);
+  EXPECT_EQ(data.GetValue(DataType::kTypeTemperature), 24);
+  EXPECT_EQ(data.GetValue(DataType::kTypeGradient), 321);
+  EXPECT_FALSE(data.GetTypes() & kDataTypeMasks[DataType::kTypeHeartRate]);
+}
+
+TEST(FitDataTests, ExportToJsonUsesAliasesAndConversions) {
+  auto record = MakeRecord();
+  record.distance = 12345;
+  record.enhanced_speed = 2500;
+  record.enhanced_altitude = 1750;
+  record.temperature = 25;
+  record.heart_rate = 150;
+  record.position_lat = 1073741824;
+  record.position_long = -1073741824;
+
+  FitData data(&record, std::numeric_limits<uint32_t>::max());
+  const CustomFormater formatter("", "speed,distance,heartrate,altitude,temperature,latitude,longitude", false);
+  rapidjson::StringBuffer json_buffer;
+  rapidjson::Writer<rapidjson::StringBuffer> writer(json_buffer);
+
+  data.ExportToJson(writer, formatter);
+
+  rapidjson::Document doc;
+  doc.Parse(json_buffer.GetString());
+  ASSERT_FALSE(doc.HasParseError());
+  EXPECT_DOUBLE_EQ(doc["s"].GetDouble(), 9.0);
+  EXPECT_DOUBLE_EQ(doc["d"].GetDouble(), 0.12);
+  EXPECT_EQ(doc["h"].GetInt(), 150);
+  EXPECT_DOUBLE_EQ(doc["a"].GetDouble(), -150.0);
+  EXPECT_EQ(doc["t"].GetInt(), 25);
+  EXPECT_DOUBLE_EQ(doc["u"].GetDouble(), 90.0);
+  EXPECT_DOUBLE_EQ(doc["o"].GetDouble(), -90.0);
+}
+
+TEST(FitDataTests, ExportToVttWritesExpectedCue) {
+  auto record = MakeRecord();
+  record.distance = 12345;
+  record.enhanced_speed = 2500;
+
+  FitData data(&record, std::numeric_limits<uint32_t>::max());
+  data.SetValue(DataType::kTypeTimeStamp, 1000);
+  data.SetValue(DataType::kTypeTimeStampNext, 2500);
+
+  const CustomFormater formatter("", "speed,distance", false);
+  OutputBuffer out;
+  data.ExportToVtt(out, formatter);
+
+  EXPECT_EQ(std::string_view(out.GetString(), out.GetSize()),
+            std::string_view("00:00:01.000 --> 00:00:02.500\n  9.0 ㎞/h   0.12 ㎞ \n\n"));
 }
 
 }  // namespace
