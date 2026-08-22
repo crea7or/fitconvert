@@ -147,12 +147,12 @@ constexpr std::string_view kVttMessage("\nmade with ❤️ by fitconvert\n\n");
 
 // Slice string with one delimiter char(wchar...)
 template <typename InputIterator, typename UnaryFunction>
-void each_slice(InputIterator begin, InputIterator end, typename InputIterator::value_type delimiter, const UnaryFunction& function) {
+void each_slice(InputIterator begin, InputIterator end, typename std::iterator_traits<InputIterator>::value_type delimiter, const UnaryFunction& function) {
   InputIterator first = begin, current = begin;
   for (; begin != end; ++begin) {
     if (*begin == delimiter) {
       if (first != current) {
-        function(std::basic_string_view<typename InputIterator::value_type>(first, current));
+        function(std::basic_string_view<typename std::iterator_traits<InputIterator>::value_type>(first, current));
       }
       first = ++current;
     } else {
@@ -160,7 +160,7 @@ void each_slice(InputIterator begin, InputIterator end, typename InputIterator::
     }
   }
   if (first != current) {
-    function(std::basic_string_view<typename InputIterator::value_type>(first, current));
+    function(std::basic_string_view<typename std::iterator_traits<InputIterator>::value_type>(first, current));
   }
 }
 
