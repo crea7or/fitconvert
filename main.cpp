@@ -149,7 +149,7 @@ int main(int argc, char* argv[]) {
     if (result->first == ParseResult::kSuccess) {
       if (kStdoutTag == output_file) {
         std::cout.write(result->second.GetString(), result->second.GetSize());
-        if (result->second.GetSize()) {
+        if (result->second.GetSize() == 0u) {
           SPDLOG_ERROR("result is empty");
         }
       } else {
