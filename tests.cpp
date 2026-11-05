@@ -242,10 +242,30 @@ TEST(StringHelpers, EachSliceSupportsSingleSegmentWithoutDelimiter) {
 
 TEST(GradientCalculatorTests, CalculatesSlopeAndHandlesShortWindow) {
   GradientCalculator gradient(5);
+  // 10 m steps with 2 m (10 raw) climb = 20%
   EXPECT_EQ(gradient.AddRawPoint(0, 0), 0);
-  EXPECT_EQ(gradient.AddRawPoint(100, 1), 0);
-  EXPECT_EQ(gradient.AddRawPoint(200, 2), 2000);
-  EXPECT_EQ(gradient.AddRawPoint(300, 3), 2000);
+  EXPECT_EQ(gradient.AddRawPoint(1000, 10), 0);
+  EXPECT_EQ(gradient.AddRawPoint(2000, 20), 2000);
+  EXPECT_EQ(gradient.AddRawPoint(3000, 30), 2000);
+}
+
+TEST(GradientCalculatorTests, KeepsLastGradeWhenDistanceSpanIsTooShort) {
+  GradientCalculator gradient(3);
+  EXPECT_EQ(gradient.AddRawPoint(0, 0), 0);
+  EXPECT_EQ(gradient.AddRawPoint(1000, 5), 0);
+  EXPECT_EQ(gradient.AddRawPoint(2000, 10), 1000);
+  // the window still spans 10 m here
+  const int16_t before_stop = gradient.AddRawPoint(2001, 10);
+  // nearly stopped: altitude noise over a few centimeters must not produce a spike
+  EXPECT_EQ(gradient.AddRawPoint(2002, 15), before_stop);
+  EXPECT_EQ(gradient.AddRawPoint(2003, 5), before_stop);
+}
+
+TEST(GradientCalculatorTests, ClampsUnrealisticGrade) {
+  GradientCalculator gradient(3);
+  EXPECT_EQ(gradient.AddRawPoint(0, 0), 0);
+  EXPECT_EQ(gradient.AddRawPoint(500, 1000), 0);
+  EXPECT_EQ(gradient.AddRawPoint(1000, 2000), GradientCalculator::kMaxGrade);
 }
 
 TEST(GradientCalculatorTests, ReturnsZeroWhenDistanceDoesNotChange) {

@@ -26,6 +26,7 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
@@ -284,7 +285,13 @@ constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kPro
 
 class GradientCalculator {
  public:
-  explicit GradientCalculator(size_t window_size = 5) : window_size(window_size), buffer(window_size) {}
+  // raw distance is in cm, so 500 = 5 meters
+  static constexpr uint32_t kDefaultMinDistanceSpan = 500;
+  // grade is 100 * %, so 5000 = 50%
+  static constexpr int16_t kMaxGrade = 5000;
+
+  explicit GradientCalculator(size_t window_size = 5, uint32_t min_distance_span = kDefaultMinDistanceSpan)
+      : window_size(window_size), min_distance_span(min_distance_span), buffer(window_size) {}
 
   struct RawPoint {
     uint32_t distance;
@@ -299,9 +306,22 @@ class GradientCalculator {
     }
 
     if (current_count < 3) {
-      return 0;
+      return last_grade;
     }
 
+    uint32_t min_distance = std::numeric_limits<uint32_t>::max();
+    uint32_t max_distance = 0;
+    for (size_t i = 0; i < current_count; ++i) {
+      min_distance = std::min(min_distance, buffer[i].distance);
+      max_distance = std::max(max_distance, buffer[i].distance);
+    }
+    // altitude noise over a short distance gives huge slopes (stops, very low speed), keep the last grade instead
+    if (max_distance - min_distance < min_distance_span) {
+      return last_grade;
+    }
+
+    // values relative to the first point keep the sums small and avoid precision loss on long activities
+    const double origin_altitude = static_cast<double>(buffer[0].altitude);
     double sum_x = 0.0;
     double sum_y = 0.0;
     double sum_xx = 0.0;
@@ -309,8 +329,8 @@ class GradientCalculator {
 
     for (size_t i = 0; i < current_count; ++i) {
       const auto& pt = buffer[i];
-      const double x = static_cast<double>(pt.distance);
-      const double y = static_cast<double>(pt.altitude);
+      const double x = static_cast<double>(pt.distance - min_distance);
+      const double y = static_cast<double>(pt.altitude) - origin_altitude;
 
       sum_x += x;
       sum_y += y;
@@ -318,24 +338,28 @@ class GradientCalculator {
       sum_xy += x * y;
     }
 
-    const double denominator = (current_count * sum_xx - sum_x * sum_x);
+    const double count = static_cast<double>(current_count);
+    const double denominator = (count * sum_xx - sum_x * sum_x);
 
     if (std::abs(denominator) < 1e-5) {
-      return 0;
+      return last_grade;
     }
 
-    const double raw_slope = (current_count * sum_xy - sum_x * sum_y) / denominator;
-    const double garmin_grade = raw_slope * 200000.0;
+    const double raw_slope = (count * sum_xy - sum_x * sum_y) / denominator;
+    // altitude is 5 * m, distance is 100 * m, grade is 100 * %
+    const double garmin_grade = std::clamp(raw_slope * 200000.0, -static_cast<double>(kMaxGrade), static_cast<double>(kMaxGrade));
 
-    // round
-    return static_cast<int16_t>(std::round(garmin_grade));
+    last_grade = static_cast<int16_t>(std::round(garmin_grade));
+    return last_grade;
   }
 
  private:
   const size_t window_size;
+  const uint32_t min_distance_span;
   std::vector<RawPoint> buffer;
   size_t current_head{0};
   size_t current_count{0};
+  int16_t last_grade{0};
 };
 
 class CustomFormater final {
