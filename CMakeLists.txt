@@ -56,6 +56,10 @@ set(MAIN_SRC
   )
 
 add_executable(${PROJECT_NAME} ${MAIN_SRC} ${TARGET_SRC} ${FITSDK_SRC})
+if(WIN32)
+  # makes the process code page UTF-8, otherwise arguments are converted to the ANSI code page and non-ASCII text is lost
+  target_sources(${PROJECT_NAME} PRIVATE "fitconvert.manifest")
+endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt
         spdlog::spdlog
         cxxopts::cxxopts

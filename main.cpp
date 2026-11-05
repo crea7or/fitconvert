@@ -24,7 +24,15 @@
 #include <spdlog/spdlog.h>
 #ifdef _WIN32
 #include <io.h>
+#ifndef NOMINMAX
+#define NOMINMAX
 #endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+#include <algorithm>
 #include <cxxopts.hpp>
 #include <filesystem>
 #include <fstream>
@@ -118,6 +126,12 @@ int main(int argc, char* argv[]) {
 #ifdef _WIN32
     if (input_fit_file == kStdinTag) {
       (void)_setmode(_fileno(stdin), _O_BINARY);
+    }
+    // fitconvert.manifest makes the code page UTF-8 on Windows 10 1903+, older systems convert arguments to the ANSI
+    // code page and characters missing there are lost
+    if (GetACP() != CP_UTF8 &&
+        std::any_of(format.begin(), format.end(), [](const char c) { return static_cast<unsigned char>(c) >= 0x80; })) {
+      SPDLOG_WARN("system code page is not UTF-8, non-ASCII characters in the format may be lost");
     }
 #endif
 
