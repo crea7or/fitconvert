@@ -750,8 +750,8 @@ struct FitData final {
 
       std::visit(
           [&](auto&& arg) {
-            auto result = fmt::format_to_n(formatting_buffer.data(), formatting_buffer.size(), fmt::runtime(active_format), arg);
-            writer.AppendString(formatting_buffer.data(), result.size);
+            // format directly into the output, a fixed buffer would cut long formats in the middle of utf-8 sequences
+            fmt::format_to(StringBufferAppender{writer}, fmt::runtime(active_format), arg);
           },
           cooked_value);
     }

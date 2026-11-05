@@ -398,6 +398,22 @@ TEST(CustomFormatterTests, KeepsLabelBeforeField) {
   EXPECT_EQ(formatter.GetFormat(DataType::kTypeSpeed), "{:4.1f} km/h");
 }
 
+TEST(FitDataTests, ExportToVttFmtDoesNotTruncateLongFormats) {
+  auto record = MakeRecord();
+  record.distance = 12345;
+  FitData data(&record, std::numeric_limits<uint32_t>::max());
+  data.SetValue(DataType::kTypeTimeStamp, 0);
+  data.SetValue(DataType::kTypeTimeStampNext, 1000);
+
+  const CustomFormater formatter("{distance:5.1f} kilometers ridden so far ❤️❤️", "distance", false);
+  ASSERT_TRUE(formatter.IsValid());
+  OutputBuffer out;
+  data.ExportToVttFmt(out, formatter);
+
+  EXPECT_EQ(std::string_view(out.GetString(), out.GetSize()),
+            std::string_view("00:00:00.000 --> 00:00:01.000\n  0.1 kilometers ridden so far ❤️❤️\n\n"));
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
