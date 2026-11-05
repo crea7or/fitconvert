@@ -668,11 +668,10 @@ struct FitData final {
 
       ProcessedValue cooked_value = kProcessors[type_index].first(values[type_index], formatter.IsImperial());
       writer.Key(rapidjson::StringRef(kDataTypes[type_index].second.data(), kDataTypes[type_index].second.size()));
-      if ((kDataTypeMasks[kTypeLatitude] | kDataTypeMasks[kTypeLongitude]) & kDataTypeMasks[type_index]) {
-        writer.SetMaxDecimalPlaces(6);
-      } else {
-        writer.SetMaxDecimalPlaces(2);
-      }
+      const bool is_position = ((kDataTypeMasks[kTypeLatitude] | kDataTypeMasks[kTypeLongitude]) & kDataTypeMasks[type_index]) != 0u;
+      writer.SetMaxDecimalPlaces(is_position ? 6 : 2);
+      // rapidjson truncates extra decimal places, round first so values are not biased down
+      const double scale = is_position ? 1e6 : 1e2;
       std::visit(
           [&](auto&& arg) {
             using T = std::decay_t<decltype(arg)>;
@@ -681,7 +680,8 @@ struct FitData final {
             } else if constexpr (std::is_same_v<T, uint64_t>) {
               writer.Uint64(arg);
             } else if constexpr (std::is_same_v<T, double>) {
-              writer.Double(arg);
+              // + 0.0 turns -0.0 into 0.0
+              writer.Double(std::round(arg * scale) / scale + 0.0);
             }
           },
           cooked_value);
