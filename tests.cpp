@@ -414,6 +414,28 @@ TEST(FitDataTests, ExportToVttFmtDoesNotTruncateLongFormats) {
             std::string_view("00:00:00.000 --> 00:00:01.000\n  0.1 kilometers ridden so far ❤️❤️\n\n"));
 }
 
+TEST(FitDataTests, InterpolationIgnoresValuesMissingInOneRecord) {
+  auto record_from = MakeRecord();
+  record_from.timestamp = 100;
+  record_from.enhanced_altitude = 3000;
+  record_from.power = 200;
+  auto record_to = MakeRecord();
+  record_to.timestamp = 101;
+  record_to.heart_rate = 150;
+  record_to.power = 300;
+
+  const FitData from(&record_from, std::numeric_limits<uint32_t>::max());
+  const FitData to(&record_to, std::numeric_limits<uint32_t>::max());
+  const FitData step = from + (to - from) / 2;
+
+  // heart rate is missing in the first record, altitude in the second one
+  EXPECT_FALSE(step.GetTypes() & kDataTypeMasks[DataType::kTypeHeartRate]);
+  EXPECT_TRUE(step.GetTypes() & kDataTypeMasks[DataType::kTypeAltitude]);
+  EXPECT_EQ(step.GetValue(DataType::kTypeAltitude), 3000);
+  EXPECT_EQ(step.GetValue(DataType::kTypePower), 250);
+  EXPECT_EQ(step.GetValue(DataType::kTypeTimeStamp), 100500);
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {

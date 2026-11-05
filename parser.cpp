@@ -760,16 +760,20 @@ struct FitData final {
     writer.NewLine();
   }
 
-  FitData operator-(const FitData right_value) noexcept {
+  FitData operator-(const FitData& right_value) const noexcept {
     FitData diff_record;
-    diff_record.available_types = available_types | right_value.available_types;
+    // only values present in both records can be interpolated, a missing value is not zero
+    diff_record.available_types = available_types & right_value.available_types;
+    // timestamps are always set, even when they are not requested for output
+    const uint32_t interpolated_types =
+        diff_record.available_types | kDataTypeMasks[DataType::kTypeTimeStamp] | kDataTypeMasks[DataType::kTypeTimeStampNext];
     for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
-      diff_record.values[index] = values[index] - right_value.values[index];
+      diff_record.values[index] = (interpolated_types & kDataTypeMasks[index]) ? values[index] - right_value.values[index] : 0;
     }
     return diff_record;
   };
 
-  FitData operator+(const FitData right_value) noexcept {
+  FitData operator+(const FitData& right_value) const noexcept {
     FitData summ_record;
     summ_record.available_types = available_types | right_value.available_types;
     for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
@@ -778,7 +782,7 @@ struct FitData final {
     return summ_record;
   };
 
-  FitData operator/(const int64_t divider) noexcept {
+  FitData operator/(const int64_t divider) const noexcept {
     FitData divided_record;
     divided_record.available_types = available_types;
     for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
