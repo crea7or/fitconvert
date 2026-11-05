@@ -390,6 +390,14 @@ TEST(ConvertTests, InvalidFormatFailsWithoutCrash) {
   EXPECT_EQ(result->first, ParseResult::kError);
 }
 
+TEST(CustomFormatterTests, KeepsLabelBeforeField) {
+  const CustomFormater formatter("HR {heartrate:3};{speed:4.1f} km/h", "heartrate,speed", false);
+  ASSERT_TRUE(formatter.IsValid());
+  ASSERT_EQ(formatter.GetDataTypeIndexes().size(), 2);
+  EXPECT_EQ(formatter.GetFormat(DataType::kTypeHeartRate), "HR {:3}");
+  EXPECT_EQ(formatter.GetFormat(DataType::kTypeSpeed), "{:4.1f} km/h");
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {

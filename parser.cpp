@@ -360,20 +360,21 @@ class CustomFormater final {
   }
 
   void ApplyFormat(const std::string_view format) {
-    if (format.size() < 1) {  // {tag required
+    // text before the '{' is kept as a label, e.g. "HR {heartrate:3}"
+    const size_t brace_pos = format.find('{');
+    if (brace_pos == std::string_view::npos) {  // {tag required
       return;
     }
-    if (format[0] != '{') {
-      return;
-    }
-    const std::string_view tag = format.substr(1);  // skip '{'
+    const std::string_view label = format.substr(0, brace_pos);
+    const std::string_view tag = format.substr(brace_pos + 1);  // skip '{'
     for (size_t type_index = kTypeFirst; type_index < kTypeMax; type_index++) {
       const std::string_view name = kDataTypes[type_index].first;
       // the name must be followed by ':' or '}', otherwise 'timestamp' would also match 'timestampnext'
       if (tag.size() <= name.size() || !tag.starts_with(name) || (tag[name.size()] != ':' && tag[name.size()] != '}')) {
         continue;
       }
-      std::string field_format{"{"};
+      std::string field_format{label};
+      field_format.push_back('{');
       field_format.append(tag.substr(name.size()));
       if (!ValidateFormat(field_format, type_index)) {
         valid_ = false;
