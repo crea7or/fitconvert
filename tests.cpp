@@ -367,6 +367,7 @@ TEST(FitDataTests, ExportToJsonUsesAliasesAndConversions) {
   EXPECT_EQ(doc["t"].GetInt(), 25);
   EXPECT_DOUBLE_EQ(doc["u"].GetDouble(), 90.0);
   EXPECT_DOUBLE_EQ(doc["o"].GetDouble(), -90.0);
+  EXPECT_EQ(doc["f"].GetInt64(), 123000);
 }
 
 TEST(FitDataTests, ExportToVttWritesExpectedCue) {

@@ -681,8 +681,13 @@ struct FitData final {
   void ExportToJson(rapidjson::Writer<rapidjson::StringBuffer>& writer, const CustomFormater& formatter) {
     writer.StartObject();
 
+    // video time in milliseconds is always written: records are not evenly spaced (pauses, smart recording)
+    const auto& timestamp_key = kDataTypes[DataType::kTypeTimeStamp].second;
+    writer.Key(rapidjson::StringRef(timestamp_key.data(), timestamp_key.size()));
+    writer.Int64(values[DataType::kTypeTimeStamp]);
+
     for (const auto type_index : formatter.GetDataTypeIndexes()) {
-      if (!(available_types & kDataTypeMasks[type_index])) {
+      if (type_index == DataType::kTypeTimeStamp || !(available_types & kDataTypeMasks[type_index])) {
         continue;
       }
 
