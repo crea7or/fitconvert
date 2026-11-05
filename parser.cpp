@@ -451,26 +451,6 @@ class CustomFormater final {
   size_t fileds_{0};
 };
 
-// adapter for fmt::format_to to write directly into a RapidJSON StringBuffer
-struct StringBufferAppender {
-  rapidjson::StringBuffer& buf;
-
-  using value_type = char;
-  using difference_type = std::ptrdiff_t;
-  using pointer = void;
-  using reference = char;
-  using iterator_category = std::output_iterator_tag;
-
-  StringBufferAppender& operator=(char c) {
-    buf.Put(c);
-    return *this;
-  }
-
-  StringBufferAppender& operator*() { return *this; }
-  StringBufferAppender& operator++() { return *this; }
-  StringBufferAppender& operator++(int) { return *this; }
-};
-
 class OutputBuffer final : public rapidjson::StringBuffer {
  public:
   using Base = rapidjson::StringBuffer;
@@ -488,7 +468,14 @@ class OutputBuffer final : public rapidjson::StringBuffer {
   // append formatted
   template <typename... Args>
   void AppendFmt(fmt::format_string<Args...> fmtStr, Args&&... args) {
-    fmt::format_to(StringBufferAppender{*this}, fmtStr, std::forward<Args>(args)...);
+    AppendVFmt(fmt::string_view(fmtStr), fmt::make_format_args(args...));
+  }
+
+  // format into a stack buffer and copy it at once, instead of writing every character separately
+  void AppendVFmt(const fmt::string_view format_str, const fmt::format_args args) {
+    fmt::memory_buffer formatted;
+    fmt::vformat_to(fmt::appender(formatted), format_str, args);
+    AppendString(formatted.data(), formatted.size());
   }
 
   void AppendString(std::string_view s) { AppendString(s.data(), s.size()); }
@@ -770,7 +757,7 @@ struct FitData final {
       std::visit(
           [&](auto&& arg) {
             // format directly into the output, a fixed buffer would cut long formats in the middle of utf-8 sequences
-            fmt::format_to(StringBufferAppender{writer}, fmt::runtime(active_format), arg);
+            writer.AppendVFmt(active_format, fmt::make_format_args(arg));
           },
           cooked_value);
     }
