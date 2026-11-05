@@ -24,6 +24,7 @@
 #include <fcntl.h>
 #include <spdlog/spdlog.h>
 
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -46,8 +47,13 @@ DataSource::Status DataSource::ReadDataInternal(std::istream& stream, Buffer& bu
 
 DataSourceFile::DataSourceFile(const std::string source_name)
     : DataSource(DataSource::Type::kFile), source_name_(source_name) {
-  stream_ = std::make_unique<std::ifstream>(source_name_, std::ios::in | std::ios::app | std::ios::binary);
-  stream_->exceptions(std::ios_base::badbit);
+  // read only: 'app' would open the file for writing too, failing on read-only files and creating missing ones
+  auto file_stream = std::make_unique<std::ifstream>(source_name_, std::ios::in | std::ios::binary);
+  if (!file_stream->is_open()) {
+    throw std::runtime_error("can't open input file: " + source_name_);
+  }
+  file_stream->exceptions(std::ios_base::badbit);
+  stream_ = std::move(file_stream);
 }
 
 DataSource::Status DataSourceFile::ReadData(Buffer& buffer) {
