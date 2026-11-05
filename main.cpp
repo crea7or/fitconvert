@@ -20,6 +20,7 @@
 */
 
 #include <fcntl.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 #ifdef _WIN32
 #include <io.h>
@@ -69,6 +70,8 @@ usage: fitconvert -i input_file -o output_file -t output_type -f offset -s N
 )%";
 
 int main(int argc, char* argv[]) {
+  // log to stderr, stdout may carry the converted data ("-o stdout")
+  spdlog::set_default_logger(spdlog::stderr_color_mt("stderr"));
   spdlog::set_pattern("[%H:%M:%S.%e] %^[%l]%$ %v");
   try {
     cxxopts::Options cmd_options("FIT converter", "FIT telemetry converter to .VTT or .JSON");
