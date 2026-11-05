@@ -491,21 +491,14 @@ class OutputBuffer final : public rapidjson::StringBuffer {
     fmt::format_to(StringBufferAppender{*this}, fmtStr, std::forward<Args>(args)...);
   }
 
-  void AppendString(std::string_view s) {
-    for (char c : s) {
-      Put(c);
-    }
-  }
+  void AppendString(std::string_view s) { AppendString(s.data(), s.size()); }
 
-  void AppendString(const std::string& s) {
-    for (char c : s) {
-      Put(c);
-    }
-  }
+  void AppendString(const std::string& s) { AppendString(s.data(), s.size()); }
 
+  // reserve once and copy, instead of a capacity check per character
   void AppendString(const char* s, size_t size) {
-    for (size_t i = 0u; i < size; ++i) {
-      Put(s[i]);
+    if (size > 0u) {
+      std::memcpy(Push(size), s, size);
     }
   }
 
