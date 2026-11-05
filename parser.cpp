@@ -782,6 +782,15 @@ struct FitData final {
     return summ_record;
   };
 
+  FitData operator*(const int64_t multiplier) const noexcept {
+    FitData multiplied_record;
+    multiplied_record.available_types = available_types;
+    for (uint32_t index = DataType::kTypeFirst; index < DataType::kTypeMax; ++index) {
+      multiplied_record.values[index] = values[index] * multiplier;
+    }
+    return multiplied_record;
+  };
+
   FitData operator/(const int64_t divider) const noexcept {
     FitData divided_record;
     divided_record.available_types = available_types;
@@ -956,16 +965,17 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
       }
       // process new_fit_data_ptr (actually the previous one as we swaped them) and we have new one in previous_fit_data_ptr
       if (smoothness > 0u) {
-        const int64_t smoothed_diff_ms = (new_fit_from_ms - new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp)) / (smoothness + 1u);
-        new_fit_data_ptr->SetValue(DataType::kTypeTimeStampNext, new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp) + smoothed_diff_ms);
-        Export(new_fit_data_ptr);
-
-        FitData diff = *previous_fot_data_ptr - *new_fit_data_ptr;
-        diff = diff / (smoothness + 1u);
-        for (uint8_t cur_step = 0u; cur_step < smoothness; ++cur_step) {
-          *new_fit_data_ptr = *new_fit_data_ptr + diff;
-          new_fit_data_ptr->SetValue(DataType::kTypeTimeStampNext, new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp) + smoothed_diff_ms);
-          Export(new_fit_data_ptr);
+        // every step is computed from the start of the interval, so the rounding errors do not accumulate and the
+        // last step ends exactly where the next record starts
+        const int64_t steps = smoothness + 1;
+        const int64_t from_ms = new_fit_data_ptr->GetValue(DataType::kTypeTimeStamp);
+        const int64_t span_ms = new_fit_from_ms - from_ms;
+        const FitData diff = *previous_fot_data_ptr - *new_fit_data_ptr;
+        for (int64_t step = 0; step < steps; ++step) {
+          FitData step_data = *new_fit_data_ptr + (diff * step) / steps;
+          step_data.SetValue(DataType::kTypeTimeStamp, from_ms + (span_ms * step) / steps);
+          step_data.SetValue(DataType::kTypeTimeStampNext, from_ms + (span_ms * (step + 1)) / steps);
+          Export(&step_data);
         }
       } else {
         new_fit_data_ptr->SetValue(DataType::kTypeTimeStampNext, new_fit_from_ms);
