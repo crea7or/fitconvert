@@ -151,7 +151,7 @@ int main(int argc, char* argv[]) {
         output_stream.write(result->second.GetString(), result->second.GetSize());
       }
     } else {
-      SPDLOG_ERROR(".fit file problem during processing");
+      SPDLOG_ERROR("conversion failed");
       return kToolError;
     }
   } catch (const std::ios_base::failure& fail) {

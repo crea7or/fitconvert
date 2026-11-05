@@ -80,6 +80,7 @@ target_link_libraries(${BENCH_PROJECT_NAME} PRIVATE fmt::fmt
 set(TEST_PROJECT_NAME "fitconvert-tests")
 set(TEST_SOURCES
   "tests.cpp"
+  "datasource.cpp"
   )
 
 enable_testing()

@@ -365,6 +365,31 @@ TEST(FitDataTests, ExportToVttWritesExpectedCue) {
             std::string_view("00:00:01.000 --> 00:00:02.500\n  9.0 ㎞/h   0.12 ㎞ \n\n"));
 }
 
+TEST(CustomFormatterTests, RejectsFormatNotMatchingValueType) {
+  const CustomFormater formatter("{heartrate:3.1f} bpm", "heartrate", false);
+  EXPECT_FALSE(formatter.IsValid());
+}
+
+TEST(CustomFormatterTests, RejectsUnterminatedAndUnknownFields) {
+  EXPECT_FALSE(CustomFormater("{speed", "speed", false).IsValid());
+  EXPECT_FALSE(CustomFormater("{grade:2.1f}", "gradient", false).IsValid());
+}
+
+TEST(CustomFormatterTests, DoesNotConfuseFieldsSharingPrefix) {
+  const CustomFormater formatter("{timestampnext}", "timestampnext", false);
+  ASSERT_TRUE(formatter.IsValid());
+  const auto& indexes = formatter.GetDataTypeIndexes();
+  ASSERT_EQ(indexes.size(), 1);
+  EXPECT_EQ(indexes[0], DataType::kTypeTimeStampNext);
+  EXPECT_EQ(formatter.GetFormat(DataType::kTypeTimeStampNext), "{}");
+}
+
+TEST(ConvertTests, InvalidFormatFailsWithoutCrash) {
+  const uint8_t dummy[1] = {0};
+  auto result = Convert(std::make_unique<DataSourceMemory>(dummy, sizeof(dummy)), "vtt", 0, 0, "heartrate", false, "{heartrate:.1f}");
+  EXPECT_EQ(result->first, ParseResult::kError);
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {

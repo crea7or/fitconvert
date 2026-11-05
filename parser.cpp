@@ -203,6 +203,85 @@ std::vector<size_t> DataTypeNamesToIndexes(std::string_view names) {
   return indexes;
 }
 
+// Return Value
+using ProcessedValue = std::variant<int64_t, double>;
+// Convert Functions
+using ParamProcessor = ProcessedValue (*)(int64_t, bool);
+
+constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kProcessors = {
+    // kTypeSpeed
+    {
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
+           return static_cast<double>(raw) / (imperial ? 447.2136 : 277.77);
+         },
+         1},  // kTypeSpeed
+        // kTypeDistance
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           return static_cast<double>(raw) / (imperial ? 160934.4 : 100000.0);
+         },
+         2},  // kTypeDistance
+        // kTypeHeartRate
+        {[](int64_t raw, bool) -> ProcessedValue {
+           // FIT_UINT8 heart_rate = bpm
+           return raw;
+         },
+         0},  // kTypeHeartRate
+        // kTypeAltitude
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           // FIT_UINT32 enhanced_altitude = 5 * m + 500
+           const int64_t altitude_meters = (raw / 5) - 500;
+           return imperial ? (altitude_meters * 3.28084) : altitude_meters;
+         },
+         0},  // kTypeAltitude
+        // kTypePower
+        {[](int64_t raw, bool) -> ProcessedValue {
+           // FIT_UINT16 power = watts
+           return raw;
+         },
+         0},  // kTypePower
+        // kTypeCadence
+        {[](int64_t raw, bool) -> ProcessedValue {
+           // FIT_UINT8 cadence = rpm
+           return raw;
+         },
+         0},  // kTypeCadence
+        // kTypeTemperature
+        {[](int64_t raw, bool imperial) -> ProcessedValue {
+           // FIT_SINT8 temperature = C
+           return imperial ? (raw * 9 / 5 + 32) : raw;
+         },
+         0},  // kTypeTemperature
+        // kTypeTimeStamp
+        {[](int64_t raw, bool) -> ProcessedValue {
+           return raw;
+         },
+         0},  // kTypeTimeStamp
+        // kTypeLatitude
+        {[](int64_t raw, bool) -> ProcessedValue {
+           // semicircles to degrees
+           return static_cast<double>(raw) * (180.0 / 2147483648.0);
+         },
+         0},  // kTypeLatitude
+        // kTypeLongitude
+        {[](int64_t raw, bool) -> ProcessedValue {
+           // semicircles to degrees
+           return static_cast<double>(raw) * (180.0 / 2147483648.0);
+         },
+         0},  // kTypeLongitude
+        // kTypeTimeStampNext
+        {[](int64_t raw, bool) -> ProcessedValue {
+           return raw;
+         },
+         0},  // kTypeTimeStampNext
+        // kTypeGradient
+        {[](int64_t raw, bool) -> ProcessedValue {
+           // FIT_SINT16 grade = 100 * % + 0
+           return static_cast<double>(raw) / 100.0;
+         },
+         1}  // kTypeGradient
+    }};
+
 class GradientCalculator {
  public:
   explicit GradientCalculator(size_t window_size = 5) : window_size(window_size), buffer(window_size) {}
@@ -289,20 +368,30 @@ class CustomFormater final {
     }
     const std::string_view tag = format.substr(1);  // skip '{'
     for (size_t type_index = kTypeFirst; type_index < kTypeMax; type_index++) {
-      const auto& param_pair = kDataTypes[type_index];
-      if (tag.starts_with(param_pair.first)) {
-        formats_[type_index] = ExtractFormat(tag, param_pair.first);
-        const auto dt = NameToDataType(param_pair.first);
-        if (dt != DataType::kTypeMax) {
-          data_types_array_.push_back(dt);
-        }
+      const std::string_view name = kDataTypes[type_index].first;
+      // the name must be followed by ':' or '}', otherwise 'timestamp' would also match 'timestampnext'
+      if (tag.size() <= name.size() || !tag.starts_with(name) || (tag[name.size()] != ':' && tag[name.size()] != '}')) {
+        continue;
       }
+      std::string field_format{"{"};
+      field_format.append(tag.substr(name.size()));
+      if (!ValidateFormat(field_format, type_index)) {
+        valid_ = false;
+        return;
+      }
+      formats_[type_index] = std::move(field_format);
+      data_types_array_.push_back(type_index);
+      fileds_++;
+      return;
     }
+    SPDLOG_ERROR("unknown field in format: '{}'", format);
+    valid_ = false;
   }
 
   const uint32_t GetDataTypesMask() const { return collect_data_types_; }
   size_t FieldsInitialized() const { return fileds_; }
   bool IsImperial() const { return imperial_; }
+  bool IsValid() const { return valid_; }
   const std::vector<size_t>& GetDataTypeIndexes() const { return data_types_array_; }
 
   const std::string_view GetFormat(const size_t index) const {
@@ -318,12 +407,18 @@ class CustomFormater final {
   std::vector<size_t> data_types_array_;
   std::string formats_[kTypeMax];
 
-  std::string ExtractFormat(const std::string_view tag, const std::string_view param) {
-    std::string result{"{"};
-    result.append(&tag[param.size()], tag.size() - param.size());
-    fileds_++;
-    // SPDLOG_ERROR("custom format parsing, param: {}, format: {}", param, result);
-    return result;
+  bool valid_{true};
+
+  // format a sample value of the type the field produces, to reject bad formats before conversion starts
+  bool ValidateFormat(const std::string& field_format, const size_t type_index) const {
+    try {
+      const ProcessedValue sample = kProcessors[type_index].first(0, imperial_);
+      std::visit([&](auto&& value) { (void)fmt::format(fmt::runtime(field_format), value); }, sample);
+      return true;
+    } catch (const fmt::format_error& e) {
+      SPDLOG_ERROR("invalid format '{}' for '{}': {}", field_format, kDataTypes[type_index].first, e.what());
+    }
+    return false;
   }
 
   size_t fileds_{0};
@@ -508,85 +603,6 @@ size_t format_timestamp(char* buffer_ptr, const size_t buffer_size, const Time& 
     return 0u;
   return static_cast<size_t>(ptr - buffer_ptr);
 }
-
-// Return Value
-using ProcessedValue = std::variant<int64_t, double>;
-// Convert Functions
-using ParamProcessor = ProcessedValue (*)(int64_t, bool);
-
-constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kProcessors = {
-    // kTypeSpeed
-    {
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
-           // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
-           return static_cast<double>(raw) / (imperial ? 447.2136 : 277.77);
-         },
-         1},  // kTypeSpeed
-        // kTypeDistance
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
-           return static_cast<double>(raw) / (imperial ? 160934.4 : 100000.0);
-         },
-         2},  // kTypeDistance
-        // kTypeHeartRate
-        {[](int64_t raw, bool) -> ProcessedValue {
-           // FIT_UINT8 heart_rate = bpm
-           return raw;
-         },
-         0},  // kTypeHeartRate
-        // kTypeAltitude
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
-           // FIT_UINT32 enhanced_altitude = 5 * m + 500
-           const int64_t altitude_meters = (raw / 5) - 500;
-           return imperial ? (altitude_meters * 3.28084) : altitude_meters;
-         },
-         0},  // kTypeAltitude
-        // kTypePower
-        {[](int64_t raw, bool) -> ProcessedValue {
-           // FIT_UINT16 power = watts
-           return raw;
-         },
-         0},  // kTypePower
-        // kTypeCadence
-        {[](int64_t raw, bool) -> ProcessedValue {
-           // FIT_UINT8 cadence = rpm
-           return raw;
-         },
-         0},  // kTypeCadence
-        // kTypeTemperature
-        {[](int64_t raw, bool imperial) -> ProcessedValue {
-           // FIT_SINT8 temperature = C
-           return imperial ? (raw * 9 / 5 + 32) : raw;
-         },
-         0},  // kTypeTemperature
-        // kTypeTimeStamp
-        {[](int64_t raw, bool) -> ProcessedValue {
-           return raw;
-         },
-         0},  // kTypeTimeStamp
-        // kTypeLatitude
-        {[](int64_t raw, bool) -> ProcessedValue {
-           // semicircles to degrees
-           return static_cast<double>(raw) * (180.0 / 2147483648.0);
-         },
-         0},  // kTypeLatitude
-        // kTypeLongitude
-        {[](int64_t raw, bool) -> ProcessedValue {
-           // semicircles to degrees
-           return static_cast<double>(raw) * (180.0 / 2147483648.0);
-         },
-         0},  // kTypeLongitude
-        // kTypeTimeStampNext
-        {[](int64_t raw, bool) -> ProcessedValue {
-           return raw;
-         },
-         0},  // kTypeTimeStampNext
-        // kTypeGradient
-        {[](int64_t raw, bool) -> ProcessedValue {
-           // FIT_SINT16 grade = 100 * % + 0
-           return static_cast<double>(raw) / 100.0;
-         },
-         1}  // kTypeGradient
-    }};
 
 struct FitData final {
   FitData() {
@@ -820,6 +836,9 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
 
   GradientCalculator gradient;
   CustomFormater formatter(format, data_types_order, imperial);
+  if (!formatter.IsValid()) {
+    return result;
+  }
 
   OutputBuffer write_buffer;
   // start json creation
@@ -837,7 +856,7 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
 
   // make exporter
   auto MakeExporter = [](auto& write_buffer, auto& writer, auto& vtt_output, auto& json_output, const CustomFormater& formatter) {
-    return [&](auto&& x) noexcept -> void {
+    return [&](auto&& x) -> void {
       if (json_output) {
         x->ExportToJson(writer, formatter);
       } else if (vtt_output) {
