@@ -104,6 +104,7 @@ TEST(ValuesFormatting, Positive) {
 
 TEST(ValuesFormatting, Negative) {
   { EXPECT_THROW(Time(1234567890), std::invalid_argument); }
+  { EXPECT_THROW(Time(-1), std::invalid_argument); }
 }
 
 TEST(ValuesFormatting, EdgeCases) {

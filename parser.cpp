@@ -521,7 +521,7 @@ constexpr std::string_view kFmtImperialFormat{
 
 struct Time {
   Time(const int64_t milliseconds_total) {
-    if (milliseconds_total > 356400000) {  // 99 hours
+    if (milliseconds_total < 0 || milliseconds_total > 356400000) {  // 0 - 99 hours
       throw std::invalid_argument("unsupported time frame");
     }
     uint64_t ms_remainder = milliseconds_total;
@@ -866,6 +866,8 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
   uint32_t used_data_types{0u};
   uint32_t file_items{0u};
   uint32_t non_msg_counter{0u};
+  uint32_t skipped_records{0u};
+  int64_t last_record_msec{0};
   int64_t first_fit_timestamp{0};
   int64_t first_video_timestamp{0};
 
@@ -928,6 +930,11 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
       const FIT_UINT8* fit_message_ptr = FitConvert_GetMessageData();
       const FIT_RECORD_MESG* fit_record_ptr = reinterpret_cast<const FIT_RECORD_MESG*>(fit_message_ptr);
 
+      // records without a timestamp can't be placed on the timeline
+      if (fit_record_ptr->timestamp == FIT_DATE_TIME_INVALID) {
+        ++skipped_records;
+        continue;
+      }
       // convert timestamp to milliseconds
       const int64_t type_msec = static_cast<int64_t>(fit_record_ptr->timestamp) * 1000;
       // fit timestamp should not be 0, because it's milliseconds since UTC 00:00 Dec 31 1989
@@ -959,6 +966,13 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
           continue;
         }
       }
+
+      // timestamps going backwards or repeating (device clock adjustments) would give negative or empty cues
+      if (type_msec <= last_record_msec) {
+        ++skipped_records;
+        continue;
+      }
+      last_record_msec = type_msec;
 
       // gradient calculation
       auto altitude = std::numeric_limits<decltype(fit_record_ptr->enhanced_altitude)>::max();
@@ -1082,6 +1096,10 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
   }
 
   // will not work for cout output
-  SPDLOG_INFO("fit records processed: {}, source size: {}, non items: {}", file_items, data_source_size, non_msg_counter);
+  SPDLOG_INFO("fit records processed: {}, source size: {}, non items: {}, skipped records: {}",
+              file_items,
+              data_source_size,
+              non_msg_counter,
+              skipped_records);
   return result;
 }
