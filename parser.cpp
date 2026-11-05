@@ -861,6 +861,7 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
   if (!formatter.IsValid()) {
     return result;
   }
+  const bool calculate_gradient = (formatter.GetDataTypesMask() & kDataTypeMasks[DataType::kTypeGradient]) != 0u;
 
   OutputBuffer write_buffer;
   // start json creation
@@ -956,20 +957,22 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
       }
       last_record_msec = type_msec;
 
-      // gradient calculation
-      auto altitude = std::numeric_limits<decltype(fit_record_ptr->enhanced_altitude)>::max();
-      if (fit_record_ptr->enhanced_altitude != std::numeric_limits<decltype(fit_record_ptr->enhanced_altitude)>::max()) {
-        altitude = fit_record_ptr->enhanced_altitude;
-      } else if (fit_record_ptr->altitude != std::numeric_limits<decltype(fit_record_ptr->altitude)>::max()) {
-        altitude = fit_record_ptr->altitude;
-      }
-      auto distance = std::numeric_limits<decltype(fit_record_ptr->distance)>::max();
-      if (fit_record_ptr->distance != std::numeric_limits<decltype(fit_record_ptr->distance)>::max()) {
-        distance = fit_record_ptr->distance;
-      }
-      if (altitude != std::numeric_limits<decltype(altitude)>::max() && distance != std::numeric_limits<decltype(distance)>::max()) {
-        FIT_RECORD_MESG* fit_record_modifieable_ptr = const_cast<FIT_RECORD_MESG*>(fit_record_ptr);
-        fit_record_modifieable_ptr->grade = gradient.AddRawPoint(distance, altitude);
+      // gradient calculation, only when requested
+      if (calculate_gradient) {
+        auto altitude = std::numeric_limits<decltype(fit_record_ptr->enhanced_altitude)>::max();
+        if (fit_record_ptr->enhanced_altitude != std::numeric_limits<decltype(fit_record_ptr->enhanced_altitude)>::max()) {
+          altitude = fit_record_ptr->enhanced_altitude;
+        } else if (fit_record_ptr->altitude != std::numeric_limits<decltype(fit_record_ptr->altitude)>::max()) {
+          altitude = fit_record_ptr->altitude;
+        }
+        auto distance = std::numeric_limits<decltype(fit_record_ptr->distance)>::max();
+        if (fit_record_ptr->distance != std::numeric_limits<decltype(fit_record_ptr->distance)>::max()) {
+          distance = fit_record_ptr->distance;
+        }
+        if (altitude != std::numeric_limits<decltype(altitude)>::max() && distance != std::numeric_limits<decltype(distance)>::max()) {
+          FIT_RECORD_MESG* fit_record_modifieable_ptr = const_cast<FIT_RECORD_MESG*>(fit_record_ptr);
+          fit_record_modifieable_ptr->grade = gradient.AddRawPoint(distance, altitude);
+        }
       }
 
       new_fit_data_ptr->ApplyData(fit_record_ptr, formatter.GetDataTypesMask());
