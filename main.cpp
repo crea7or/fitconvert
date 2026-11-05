@@ -87,6 +87,11 @@ int main(int argc, char* argv[]) {
     if (argc < 2 || cmd_result.count("help") > 0 || cmd_result.count("input") == 0 || cmd_result.count("output") == 0) {
       std::cout << kBanner << std::endl;
       std::cout << kHelp << std::endl;
+      const bool help_requested = cmd_result.count("help") > 0;
+      if (!help_requested) {
+        SPDLOG_ERROR("input and output files are required");
+      }
+      return help_requested ? 0 : kToolError;
     }
 
     const std::string input_fit_file(cmd_result["input"].as<std::string>());
