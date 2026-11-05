@@ -114,6 +114,37 @@ Example setup for Visual Studio 2022:
  # Open build\fit2srt.sln
 ```
 
+### Tests
+
+Tests use GoogleTest and need no data files: `fit_writer.h` builds synthetic `.fit` files in memory.
+
+```bash
+cmake --build build --config Release --target fitconvert-tests
+build/Release/fitconvert-tests
+```
+
+Coverage (clang or clang-cl, source based coverage; gcc uses gcov):
+
+```bash
+cmake -B build-cov -S . -G Ninja -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_C_COMPILER=clang-cl -DFITCONVERT_COVERAGE=ON ...
+cmake --build build-cov --target fitconvert-tests
+LLVM_PROFILE_FILE=tests.profraw build-cov/fitconvert-tests
+llvm-profdata merge -sparse tests.profraw -o tests.profdata
+llvm-cov report build-cov/fitconvert-tests -instr-profile=tests.profdata parser.cpp datasource.cpp
+```
+
+Note: rapidjson 1.1.0 does not compile with clang 19+ out of the box, add `-fdelayed-template-parsing` to `CMAKE_CXX_FLAGS`.
+
+### Benchmarks
+
+Benchmarks use Google Benchmark on synthetic 1 hour and 10 hour rides plus micro benchmarks of the per record code.
+A real activity is benchmarked too when given with `--fit_file=path` (or `FITCONVERT_BENCH_FILE`, or `./300.fit` if it exists):
+
+```bash
+build/Release/fitconvert-bench --fit_file=ride.fit
+build/Release/fitconvert-bench --benchmark_filter=BM_ConvertVtt --benchmark_repetitions=5
+```
+
 ---
 
 ## License

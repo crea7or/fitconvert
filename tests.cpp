@@ -384,7 +384,7 @@ TEST(FitDataTests, ExportToVttWritesExpectedCue) {
   data.ExportToVtt(out, formatter);
 
   EXPECT_EQ(std::string_view(out.GetString(), out.GetSize()),
-            std::string_view("00:00:01.000 --> 00:00:02.500\n  9.0 ㎞/h   0.12 ㎞ \n\n"));
+            std::string_view("00:00:01.000 --> 00:00:02.500\n  9.0 km/h   0.12 km \n\n"));
 }
 
 TEST(CustomFormatterTests, RejectsFormatNotMatchingValueType) {
@@ -467,6 +467,116 @@ TEST(ProcessorTests, ConvertsUnits) {
   EXPECT_DOUBLE_EQ(std::get<double>(kProcessors[kTypeAltitude].first(3000, true)), 328.0);
   EXPECT_EQ(std::get<int64_t>(kProcessors[kTypeTemperature].first(-1, true)), 30);
   EXPECT_EQ(std::get<int64_t>(kProcessors[kTypeTemperature].first(25, true)), 77);
+}
+
+TEST(ValuesFormattingWithSuffix, ConversionFailsWhenBufferTooSmallForNumber) {
+  std::array<char, 2> buffer;
+  EXPECT_EQ(format_value_suffix(12345, buffer.data(), buffer.size(), 0, ""), 0u);
+  EXPECT_EQ(format_value_suffix(123.456, buffer.data(), buffer.size(), 0, "", 2), 0u);
+}
+
+TEST(ValuesFormattingWithSuffix, NegativeAndZeroWidth) {
+  std::array<char, 32> buffer;
+  const size_t size = format_value_suffix(int64_t{-7}, buffer.data(), buffer.size(), 0, "°C");
+  EXPECT_EQ(std::string_view(buffer.data(), size), "-7°C");
+}
+
+TEST(CustomFormatterTests, EmptyDataTypesCollectEverything) {
+  const CustomFormater formatter("", "", false);
+  EXPECT_TRUE(formatter.IsValid());
+  EXPECT_EQ(formatter.GetDataTypesMask(), std::numeric_limits<uint32_t>::max());
+  EXPECT_TRUE(formatter.GetDataTypeIndexes().empty());
+}
+
+TEST(CustomFormatterTests, GetFormatOutOfRangeIsEmpty) {
+  const CustomFormater formatter("{speed:4.1f}", "speed", false);
+  EXPECT_TRUE(formatter.GetFormat(DataType::kTypeMax).empty());
+  EXPECT_TRUE(formatter.GetFormat(DataType::kTypeDistance).empty());
+}
+
+TEST(CustomFormatterTests, RejectsFormatWithTooManyPlaceholders) {
+  EXPECT_FALSE(CustomFormater("{speed:4.1f} {}", "speed", false).IsValid());
+}
+
+TEST(OutputBufferTests, AppendsFormattedAndRawText) {
+  OutputBuffer out;
+  out.AppendFmt("{}-{:03}", "a", 7);
+  out.NewLine();
+  out.AppendString(std::string("str"));
+  out.AppendString(std::string_view("view"));
+  out.AppendString("", 0);
+  EXPECT_EQ(std::string_view(out.data(), out.size()), "a-007\nstrview");
+}
+
+TEST(FitDataTests, ArithmeticOperators) {
+  auto record = MakeRecord();
+  record.power = 100;
+  record.heart_rate = 120;
+  const FitData data(&record, std::numeric_limits<uint32_t>::max());
+
+  const FitData doubled = data * 2;
+  EXPECT_EQ(doubled.GetValue(DataType::kTypePower), 200);
+  EXPECT_EQ(doubled.GetTypes(), data.GetTypes());
+  const FitData halved = doubled / 4;
+  EXPECT_EQ(halved.GetValue(DataType::kTypeHeartRate), 60);
+  const FitData sum = data + halved;
+  EXPECT_EQ(sum.GetValue(DataType::kTypePower), 150);
+  const FitData diff = data - data;
+  EXPECT_EQ(diff.GetValue(DataType::kTypePower), 0);
+  EXPECT_EQ(diff.GetTypes(), data.GetTypes());
+}
+
+TEST(FitDataTests, CollectMaskFiltersValues) {
+  auto record = MakeRecord();
+  record.power = 100;
+  record.heart_rate = 120;
+  const FitData data(&record, kDataTypeMasks[DataType::kTypePower]);
+  EXPECT_TRUE(data.GetTypes() & kDataTypeMasks[DataType::kTypePower]);
+  EXPECT_FALSE(data.GetTypes() & kDataTypeMasks[DataType::kTypeHeartRate]);
+  EXPECT_EQ(data.GetValue(DataType::kTypeHeartRate), 0);
+}
+
+TEST(FitDataTests, ExportToVttImperial) {
+  auto record = MakeRecord();
+  record.enhanced_speed = 4470;
+  record.temperature = 0;
+
+  FitData data(&record, std::numeric_limits<uint32_t>::max());
+  data.SetValue(DataType::kTypeTimeStamp, 0);
+  data.SetValue(DataType::kTypeTimeStampNext, 1000);
+
+  const CustomFormater formatter("", "speed,temperature,heartrate", true);
+  OutputBuffer out;
+  data.ExportToVtt(out, formatter);
+  EXPECT_EQ(std::string_view(out.GetString(), out.GetSize()), "00:00:00.000 --> 00:00:01.000\n 10.0 mph  32°F \n\n");
+}
+
+TEST(ValuesFormatting, RejectsOutOfRangeTimeFields) {
+  std::array<char, 32> buffer;
+  Time time(0);
+  time.hours = 100;
+  EXPECT_EQ(format_timestamp(buffer.data(), buffer.size(), time), 0u);
+  time = Time(0);
+  time.minutes = 100;
+  EXPECT_EQ(format_timestamp(buffer.data(), buffer.size(), time), 0u);
+  time = Time(0);
+  time.seconds = 100;
+  EXPECT_EQ(format_timestamp(buffer.data(), buffer.size(), time), 0u);
+  time = Time(0);
+  time.milliseconds = 1000;
+  EXPECT_EQ(format_timestamp(buffer.data(), buffer.size(), time), 0u);
+}
+
+TEST(ProcessorTests, TimestampsArePassedThrough) {
+  EXPECT_EQ(std::get<int64_t>(kProcessors[kTypeTimeStamp].first(1234, false)), 1234);
+  EXPECT_EQ(std::get<int64_t>(kProcessors[kTypeTimeStampNext].first(5678, true)), 5678);
+}
+
+TEST(GradientCalculatorTests, ZeroMinimumSpanHandlesConstantDistance) {
+  GradientCalculator gradient(3, 0);
+  EXPECT_EQ(gradient.AddRawPoint(100, 10), 0);
+  EXPECT_EQ(gradient.AddRawPoint(100, 20), 0);
+  EXPECT_EQ(gradient.AddRawPoint(100, 30), 0);
 }
 
 }  // namespace

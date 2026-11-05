@@ -111,8 +111,8 @@ constexpr std::array<std::pair<std::string_view, std::string_view>, DataType::kT
 using FormatData = std::array<std::pair<std::string_view, size_t>, DataType::kTypeMax>;
 
 constexpr FormatData kMetricFormat = {
-    {{" ㎞/h ", 5},  // kTypeSpeed km/h
-     {" ㎞ ", 6},    // kTypeDistance km
+    {{" km/h ", 5},  // kTypeSpeed km/h
+     {" km ", 6},    // kTypeDistance km
      {"❤️ ", 4},      // kTypeHeartRate bpm
      {" m↑ ", 5},    // kTypeAltitude meters
      {"⚡ ", 5},     // kTypePower watt
@@ -126,7 +126,7 @@ constexpr FormatData kMetricFormat = {
 };
 
 constexpr FormatData kImperialFormat = {
-    {{" mp/h ", 5},  // kTypeSpeed km/h
+    {{" mph ", 5},   // kTypeSpeed mph
      {" mi ", 6},    // kTypeDistance km
      {"❤️ ", 4},      // kTypeHeartRate bpm
      {" ft↑ ", 5},   // kTypeAltitude meters
