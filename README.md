@@ -41,18 +41,20 @@ All with zero video re-encoding, so your footage stays 100% original quality.
 ## Usage
 
 ```
-usage: fitconvert -i input_file -o output_file -t output_type -f offset -s N
+usage: fitconvert -i input_file -o output_file -t output_type -m offset -s N -v units -d data_types -f format
 ```
 
 ### Parameters
 | Flag | Description |
 |------|--------------|
-| `-i` | Path to `.fit` file (input data) |
-| `-o` | Path to output file (`.vtt` or `.json`) |
+| `-i` | Path to `.fit` file (input data), or `stdin` |
+| `-o` | Path to output file (`.vtt` or `.json`), or `stdout` |
 | `-t` | Output type (`vtt` or `json`) – default is `vtt` |
-| `-f` | Offset in milliseconds (optional, syncs telemetry start with video start) |
+| `-m` | Offset in milliseconds (optional, syncs telemetry start with video start) |
 | `-s` | Smoothness value (optional, 0–5) – controls interpolation between data points for smoother graphs or frequent updates |
 | `-v` | Values format: metric or imperial (optional, default metric) |
+| `-d` | Data to process, comma delimited (optional, default all): `speed,distance,heartrate,power,cadence,temperature,gradient,altitude,latitude,longitude` |
+| `-f` | Custom VTT format (optional): fields delimited by `;`, each field is `label{name:spec}suffix` using [fmt](https://fmt.dev/latest/syntax/) format specs, e.g. `{speed:5.1f} km/h;HR {heartrate:3}` |
 
 #### Example of offset
 - **Positive offset:** your video started *after* the activity → move telemetry earlier
@@ -66,7 +68,7 @@ usage: fitconvert -i input_file -o output_file -t output_type -f offset -s N
 2. Export the `.fit` file from your device.
 3. Run:
    ```bash
-   fitconvert -i ride.fit -o ride.vtt -f 3000 -s 3
+   fitconvert -i ride.fit -o ride.vtt -m 3000 -s 3
    ```
    *(This applies a 3-second sync offset and smooths telemetry)*
 4. Put `ride.vtt` next to your video file with the same name as video but with .vtt extension and play it — or upload it to YouTube as subtitles.

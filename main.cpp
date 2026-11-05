@@ -53,7 +53,7 @@ constexpr const char kBanner[] = R"%(
 
 constexpr const char kHelp[] = R"%(
 
-usage: fitconvert -i input_file -o output_file -t output_type -f offset -s N
+usage: fitconvert -i input_file -o output_file -t output_type -m offset -s N -v units -d data_types -f format
 
 -i - path to .fit file to read data from
 -o - path to .vtt or .json file to write to
