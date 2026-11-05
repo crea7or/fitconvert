@@ -118,8 +118,8 @@ constexpr FormatData kMetricFormat = {
      {" ↻ ", 4},     // kTypeCadence rotations rpm
      {"°C ", 3},     // kTypeTemperature celsius
      {"", 0},        // kTypeTimeStamp
-     {"", 0},        // kTypeLatitude
-     {"", 0},        // kTypeLongitude
+     {"° ", 10},     // kTypeLatitude degrees
+     {"° ", 11},     // kTypeLongitude degrees
      {"", 0},        // kTypeTimeStampNext
      {"﹪", 5}}      // kTypeGradient
 };
@@ -133,8 +133,8 @@ constexpr FormatData kImperialFormat = {
      {" ↻ ", 4},     // kTypeCadence rotations rpm
      {"°F ", 3},     // kTypeTemperature celsius
      {"", 0},        // kTypeTimeStamp
-     {"", 0},        // kTypeLatitude
-     {"", 0},        // kTypeLongitude
+     {"° ", 10},     // kTypeLatitude degrees
+     {"° ", 11},     // kTypeLongitude degrees
      {"", 0},        // kTypeTimeStampNext
      {"﹪", 5}}      // kTypeGradient
 };
@@ -262,13 +262,13 @@ constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kPro
            // semicircles to degrees
            return static_cast<double>(raw) * (180.0 / 2147483648.0);
          },
-         0},  // kTypeLatitude
+         6},  // kTypeLatitude
         // kTypeLongitude
         {[](int64_t raw, bool) -> ProcessedValue {
            // semicircles to degrees
            return static_cast<double>(raw) * (180.0 / 2147483648.0);
          },
-         0},  // kTypeLongitude
+         6},  // kTypeLongitude
         // kTypeTimeStampNext
         {[](int64_t raw, bool) -> ProcessedValue {
            return raw;
