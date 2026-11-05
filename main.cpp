@@ -137,7 +137,6 @@ int main(int argc, char* argv[]) {
     }
 
     std::unique_ptr<DataSource> data_source;
-    size_t data_source_size{0};
     if (kStdinTag == input_fit_file) {
       data_source = std::make_unique<DataSourceStdin>();
     } else {

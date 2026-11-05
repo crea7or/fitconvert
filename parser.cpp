@@ -514,11 +514,6 @@ class OutputBuffer final : public rapidjson::StringBuffer {
   size_t size() const noexcept { return GetSize(); }
 };
 
-constexpr std::string_view kFmtMetricFormat{
-    "{speed:5.1f} ㎞/h;{distance:5.1f} ㎞;{heartrate:3}❤️;{altitude:4}m;{power:4}⚡;{temperature:3.1f}°C;{cadence:3}↻;{grade:2.1f}﹪"};
-constexpr std::string_view kFmtImperialFormat{
-    "{speed:5.1f} mp/h;{distance:5.1f} mi;{heartrate:3}❤️;{altitude:4}m;{power:4}⚡;{temperature:3.1f}°F;{cadence:3}↻;{grade:2.1f}﹪"};
-
 struct Time {
   Time(const int64_t milliseconds_total) {
     if (milliseconds_total < 0 || milliseconds_total > 356400000) {  // 0 - 99 hours
@@ -596,7 +591,7 @@ size_t format_timestamp(char* buffer_ptr, const size_t buffer_size, const Time& 
   char* ptr = buffer_ptr;
 
   auto write_2digits = [&](uint8_t value) -> bool {
-    if (value < 0u || value > 99u)
+    if (value > 99u)
       return false;
     const uint8_t tens = (value / 10u) % 10u;
     const uint8_t ones = value % 10u;
@@ -606,7 +601,7 @@ size_t format_timestamp(char* buffer_ptr, const size_t buffer_size, const Time& 
   };
 
   auto write_3digits = [&](uint16_t value) -> bool {
-    if (value < 0u || value > 999u)
+    if (value > 999u)
       return false;
     const uint8_t hundreds = value / 100u;
     const uint8_t tens = (value / 10u) % 10u;
