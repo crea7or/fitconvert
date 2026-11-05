@@ -865,7 +865,9 @@ std::unique_ptr<FitResult> Convert(std::unique_ptr<DataSource> data_source_ptr,
   OutputBuffer write_buffer;
   // start json creation
   rapidjson::Writer<rapidjson::StringBuffer> writer(write_buffer);
-  write_buffer.Reserve((data_source_size == 0u ? (2048u * 1024u) : (data_source_size + (data_source_size >> 2u))));
+  // default vtt output is about 2.1x of the .fit size, smoothing adds 'smoothness' records per record
+  const size_t estimated_size = (data_source_size == 0u ? (2048u * 1024u) : (data_source_size * 2u + (data_source_size >> 2u))) * (smoothness + 1u);
+  write_buffer.Reserve(estimated_size);
   if (json_output) {
     writer.SetMaxDecimalPlaces(2);
     writer.StartObject();
