@@ -213,8 +213,8 @@ constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kPro
     // kTypeSpeed
     {
         {[](int64_t raw, bool imperial) -> ProcessedValue {
-           // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s
-           return static_cast<double>(raw) / (imperial ? 447.2136 : 277.77);
+           // FIT_UINT32 enhanced_speed = 1000 * m/s = mm/s, 1 km/h = 277.78 mm/s, 1 mph = 447.04 mm/s
+           return imperial ? static_cast<double>(raw) / 447.04 : static_cast<double>(raw) * 0.0036;
          },
          1},  // kTypeSpeed
         // kTypeDistance
@@ -231,8 +231,9 @@ constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kPro
         // kTypeAltitude
         {[](int64_t raw, bool imperial) -> ProcessedValue {
            // FIT_UINT32 enhanced_altitude = 5 * m + 500
-           const int64_t altitude_meters = (raw / 5) - 500;
-           return imperial ? (altitude_meters * 3.28084) : altitude_meters;
+           // convert before rounding, integer division used to truncate 0.2 m steps and imperial was not rounded
+           const double altitude_meters = (static_cast<double>(raw) / 5.0) - 500.0;
+           return std::round(imperial ? (altitude_meters * 3.28084) : altitude_meters);
          },
          0},  // kTypeAltitude
         // kTypePower
@@ -250,7 +251,8 @@ constexpr std::array<std::pair<ParamProcessor, size_t>, DataType::kTypeMax> kPro
         // kTypeTemperature
         {[](int64_t raw, bool imperial) -> ProcessedValue {
            // FIT_SINT8 temperature = C
-           return imperial ? (raw * 9 / 5 + 32) : raw;
+           // rounded, integer math truncated toward zero (-1 C gave 31 F instead of 30)
+           return imperial ? static_cast<int64_t>(std::llround(static_cast<double>(raw) * 1.8 + 32.0)) : raw;
          },
          0},  // kTypeTemperature
         // kTypeTimeStamp

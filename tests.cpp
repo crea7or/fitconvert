@@ -456,6 +456,17 @@ TEST(FitDataTests, InterpolationIgnoresValuesMissingInOneRecord) {
   EXPECT_EQ(step.GetValue(DataType::kTypeTimeStamp), 100500);
 }
 
+TEST(ProcessorTests, ConvertsUnits) {
+  // 4470.4 mm/s = 10 mph = 16.09344 km/h
+  EXPECT_NEAR(std::get<double>(kProcessors[kTypeSpeed].first(4470, true)), 9.9991, 1e-4);
+  EXPECT_NEAR(std::get<double>(kProcessors[kTypeSpeed].first(10000, false)), 36.0, 1e-9);
+  // 2503 raw = 0.6 m, rounded to 1 m
+  EXPECT_DOUBLE_EQ(std::get<double>(kProcessors[kTypeAltitude].first(2503, false)), 1.0);
+  EXPECT_DOUBLE_EQ(std::get<double>(kProcessors[kTypeAltitude].first(3000, true)), 328.0);
+  EXPECT_EQ(std::get<int64_t>(kProcessors[kTypeTemperature].first(-1, true)), 30);
+  EXPECT_EQ(std::get<int64_t>(kProcessors[kTypeTemperature].first(25, true)), 77);
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
